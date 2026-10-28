@@ -19,3 +19,60 @@ Navigating non-digital printed information—such as product allergen lists, exp
 * **Frontend:** Vue 3 & Vite
 * **Backend:** FastAPI (Python)
 * **AI Models:** Meta Model API (**Muse Spark 1.3** & **SAM 3.1**)
+
+---
+
+## ✨ Features
+
+* **Image segmentation** — upload a photo, name an object (e.g. `dog`), and
+  SAM 3.1 returns bounding boxes drawn over the image.
+* **Visual question answering** — ask anything about the uploaded image;
+  Muse Spark 1.3 answers in plain text.
+* **Read aloud** — the answer can be spoken via the browser's built-in
+  speech synthesis (no extra service or key needed).
+* **Accessible UI** — native controls, keyboard support, labeled SVG overlay,
+  and live-region status updates.
+
+## 🚀 Quick Start
+
+Prerequisites: `uv`, Node.js with `npm`, and a Meta Model API key.
+
+```bash
+# 1. Backend API key (backend-only, never committed)
+cp backend/.env.example backend/.env
+# edit backend/.env and set MODEL_API_KEY=<your key>
+
+# 2. One-shot start (Linux/macOS/WSL)
+./full-start.sh
+# Windows: double-click full-start.bat | macOS: double-click full-start.command
+```
+
+Then open **http://127.0.0.1:5173/** (backend API at
+**http://127.0.0.1:8000**, docs at `/docs`).
+
+Full instructions, manual start commands, and troubleshooting: see
+**[MANUAL.md](MANUAL.md)**. Agent working agreement: see
+**[AGENTS.md](AGENTS.md)**.
+
+## 🗂️ Project Structure
+
+```text
+├── backend/          # FastAPI + uv (Python 3.12)
+│   ├── app/          # main.py, meta_api.py, settings.py
+│   ├── tests/        # pytest suite (upstream always mocked)
+│   ├── pyproject.toml / uv.lock / .python-version
+│   └── .env.example  # placeholder only
+├── frontend/         # Vue 3 + Vite + npm
+│   └── src/App.vue   # upload, overlay, Q&A, speech UI
+├── MANUAL.md         # how to run the program
+├── AGENTS.md         # AI agent working agreement
+└── full-start.*      # one-shot launch scripts
+```
+
+## 🔌 API Endpoints
+
+| Method & Path     | Input                          | Output                          |
+|-------------------|--------------------------------|---------------------------------|
+| `GET /health`     | —                              | `{"status": "ok"}`              |
+| `POST /api/segment` | image (JPEG/PNG/WebP ≤ 5 MiB) + `prompt` | `{model, status, output_text, boxes}` |
+| `POST /api/ask`   | image + required `question`    | `{model, status, answer}`       |
