@@ -26,8 +26,10 @@ Navigating non-digital printed information—such as product allergen lists, exp
 
 * **Image segmentation** — upload a photo, name an object (e.g. `dog`), and
   SAM 3.1 returns bounding boxes drawn over the image.
-* **Visual question answering** — ask anything about the uploaded image;
-  Muse Spark 1.3 answers in plain text.
+* **Camera capture** — frame an object with your device camera and capture
+  a still photo straight into the segmentation and Q&A workflow.
+* **Visual question answering** — ask about the full image or zoom into
+  a detected SAM region; Muse Spark 1.3 answers in plain text.
 * **Read aloud** — the answer can be spoken via the browser's built-in
   speech synthesis (no extra service or key needed).
 * **Accessible UI** — native controls, keyboard support, labeled SVG overlay,
@@ -51,7 +53,7 @@ Then open **http://127.0.0.1:5173/** (backend API at
 **http://127.0.0.1:8000**, docs at `/docs`).
 
 Full instructions, manual start commands, and troubleshooting: see
-**[MANUAL.md](MANUAL.md)**. Agent working agreement: see
+**[MANUAL.md](MANUAL.md)**. Presenter walkthrough: see
 **[AGENTS.md](AGENTS.md)**.
 
 ## 🗂️ Project Structure

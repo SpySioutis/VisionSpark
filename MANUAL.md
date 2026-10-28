@@ -61,11 +61,14 @@ cd frontend && npm install && npm run dev -- --port 5173
 ## 5. Using the app
 
 1. Click **Check backend health** — expect "Backend is reachable."
-2. Upload a JPEG/PNG/WebP image (max 5 MiB).
+2. Provide an image: upload a JPEG/PNG/WebP file (max 5 MiB), or press
+   **Use camera**, frame the object, and press **Capture photo**. The
+   camera stops automatically after capture; **Stop camera** ends it sooner.
 3. **Segmentation:** type what SAM should look for (e.g. `dog`) → **Run
    segmentation** → numbered boxes overlay the preview plus a coordinate list.
-4. **Q&A:** type a question (e.g. "What is in this image?") → **Ask** →
-   Muse Spark's answer appears below.
+4. **Q&A:** type a question (e.g. "What is in this image?"), choose
+   **Full image** or — after segmentation — a **Detected region**, then
+   **Ask** → Muse Spark's answer appears below, stating what it analyzed.
 5. **Read aloud:** click **Read answer aloud** to hear the answer; **Stop**
    cancels immediately. (Requires a browser with speech synthesis.)
 
@@ -90,6 +93,9 @@ curl -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5173/  # 200
 | Port already in use | stop the old process, or change the port (update `VITE_BACKEND_URL` + backend CORS origins accordingly) |
 | `uv: command not found` | install `uv` (Section 1) and reopen the terminal |
 | "Speech playback is not supported" | use Chrome/Edge/Firefox; no key or service can fix this, it is browser support |
+| "Camera is not supported" | use Chrome/Edge/Firefox/Safari; camera needs a secure context — `localhost`/`127.0.0.1` work, plain-`http` LAN addresses do not |
+| "Camera permission was denied" | allow camera access in the browser site settings, then press **Use camera** again |
+| "Camera is already in use" | close the other app/tab using the camera and retry |
 | Upstream 502/504 from AI endpoints | Meta API error/timeout; wait and retry, check key/billing in the Meta dashboard |
 
 ## 8. Stopping
@@ -97,3 +103,16 @@ curl -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5173/  # 200
 - `full-start.sh`: press Ctrl+C in its terminal.
 - `full-start.bat` / `.command`: close the two opened windows.
 - Manual start: Ctrl+C in each terminal.
+
+## 9. Known limitations
+
+- Model answers are AI-generated and may be wrong: for allergens, dates,
+  doses, or safety, always double-check the actual label.
+- Segmentation finds boxes only; region Q&A sends a rectangular crop of
+  the chosen box (masks are not decoded or used), otherwise the full image.
+- Uploads are limited to JPEG/PNG/WebP at 5 MiB; questions to 500
+  characters; the backend waits at most 60 s per AI request.
+- Camera and speech need a supporting browser; the camera needs a secure
+  context (`localhost`/`127.0.0.1` or HTTPS).
+- The app needs internet access to reach the Meta Model API; there is no
+  offline mode.

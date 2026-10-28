@@ -5,6 +5,10 @@
   --border: #e4e4e7;
   --code-bg: #f4f4f5;
   --accent-bg: #f4f4f5;
+  --ok: #166534;
+  --err: #b91c1c;
+  --focus: #1d4ed8;
+  --input-border: #71717a;
 
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
@@ -20,14 +24,49 @@
     --border: #3f3f46;
     --code-bg: #27272a;
     --accent-bg: #27272a;
+    --ok: #86efac;
+    --err: #fca5a5;
+    --focus: #93c5fd;
+    --input-border: #a1a1aa;
   }
 }
 
 body {
   margin: 0;
+  font-size: 1.125rem;
 }
 
 h1,
-h2 {
+h2,
+h3 {
   color: var(--text-h);
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: 2rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+}
+
+h3 {
+  font-size: 1.25rem;
+}
+
+/* Obvious keyboard focus indicator everywhere; never remove without this. */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
