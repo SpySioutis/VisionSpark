@@ -30,18 +30,18 @@ if [ ! -d "$ROOT/frontend/node_modules" ]; then
   (cd "$ROOT/frontend" && npm install) || exit 1
 fi
 
-echo "-> Opening backend window (http://127.0.0.1:8000)..."
-osascript -e "tell application \"Terminal\" to do script \"cd '$ROOT/backend' && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload\""
+echo "-> Opening backend window (http://localhost:8000)..."
+osascript -e "tell application \"Terminal\" to do script \"cd '$ROOT/backend' && uv run uvicorn app.main:app --host localhost --port 8000 --reload\""
 
-echo "-> Opening frontend window (http://127.0.0.1:5173)..."
+echo "-> Opening frontend window (http://localhost:5173)..."
 osascript -e "tell application \"Terminal\" to do script \"cd '$ROOT/frontend' && npm run dev -- --port 5173\""
 
 echo "-> Opening the app in your browser..."
 sleep 5
-open "http://127.0.0.1:5173/" || true
+open "http://localhost:5173/" || true
 
 echo ""
 echo "VisionSpark is running:"
-echo "  App: http://127.0.0.1:5173/"
-echo "  API: http://127.0.0.1:8000  (docs at /docs)"
+echo "  App: http://localhost:5173/"
+echo "  API: http://localhost:8000  (docs at /docs)"
 echo "Close the two Terminal windows to stop."

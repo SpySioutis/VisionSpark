@@ -45,14 +45,14 @@ The scripts install dependencies automatically on first run
 
 Then open:
 
-- **App:** http://127.0.0.1:5173/
-- **API:** http://127.0.0.1:8000 (interactive docs at `/docs`)
+- **App:** http://localhost:5173/
+- **API:** http://localhost:8000 (interactive docs at `/docs`)
 
 ## 4. Starting manually (two terminals)
 
 ```bash
 # Terminal 1 — backend
-cd backend && uv sync && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+cd backend && uv sync && uv run uvicorn app.main:app --host localhost --port 8000
 
 # Terminal 2 — frontend
 cd frontend && npm install && npm run dev -- --port 5173
@@ -60,23 +60,38 @@ cd frontend && npm install && npm run dev -- --port 5173
 
 ## 5. Using the app
 
-1. Click **Check backend health** — expect "Backend is reachable."
-2. Provide an image: upload a JPEG/PNG/WebP file (max 5 MiB), or press
+1. Glance at the header — the connection pill switches to "Online" by itself.
+   Open **Settings** (gear button) to pick your language (English, Français,
+   Español, Ελληνικά, 中文) — answers are given and read aloud in it —,
+   a color theme (system, light, or dark), and your voice: automatic,
+   woman's, man's, or a specific system voice (each language remembers its
+   own), plus tone and speaking rate, automatic-reading and announcement
+   toggles. Choices are remembered on your device. (Woman/man matching is
+   a best-effort guess from system voice names — the browser exposes no
+   gender info — and falls back to the default.)
+2. **Step 1 · Photo:** upload a JPEG/PNG/WebP file (max 5 MiB), or press
    **Use camera**, frame the object, and press **Capture photo**. The
    camera stops automatically after capture; **Stop camera** ends it sooner.
-3. **Segmentation:** type what SAM should look for (e.g. `dog`) → **Run
-   segmentation** → numbered boxes overlay the preview plus a coordinate list.
-4. **Q&A:** type a question (e.g. "What is in this image?"), choose
+   Press **Continue**.
+3. **Step 2 · Check:** review the preview; optionally type what to look
+   for (e.g. `label`) → **Run segmentation** → numbered boxes overlay
+   the preview. Each result is announced aloud. Press **Continue**.
+4. **Step 3 · Ask:** tap a preset question (**Read this label aloud**,
+   **Does this contain allergens?**, ...) or type your own, choose
    **Full image** or — after segmentation — a **Detected region**, then
-   **Ask** → Muse Spark's answer appears below, stating what it analyzed.
-5. **Read aloud:** click **Read answer aloud** to hear the answer; **Stop**
-   cancels immediately. (Requires a browser with speech synthesis.)
+   **Ask**.
+5. **Step 4 · Listen:** Muse Spark's answer appears and is read aloud
+   automatically (unless toggled off in Settings); **Read answer
+   aloud** repeats it and **Stop** cancels immediately. (Requires a browser
+   with speech synthesis.) The sticky
+   bar at the bottom always offers **Back**, the primary action, and
+   repeat/stop audio.
 
 ## 6. Verification checklist
 
 ```bash
-curl http://127.0.0.1:8000/health                       # {"status":"ok"}
-curl -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5173/  # 200
+curl http://localhost:8000/health                       # {"status":"ok"}
+curl -o /dev/null -w "%{http_code}\n" http://localhost:5173/  # 200
 ```
 
 - Quality gates: `cd backend && uv run pytest -q && uv run ruff check . &&
@@ -89,11 +104,11 @@ curl -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5173/  # 200
 | `/api/segment` or `/api/ask` → 503 "not configured" | `MODEL_API_KEY` missing: create `backend/.env` (Section 2) and restart the backend |
 | Upload rejected (415) | only JPEG/PNG/WebP accepted |
 | Upload rejected (413) | image exceeds 5 MiB; resize it |
-| Frontend can't reach backend | backend must run on `127.0.0.1:8000`, or set `VITE_BACKEND_URL` in `frontend/.env` to match |
+| Frontend can't reach backend | backend must run on `localhost:8000`, or set `VITE_BACKEND_URL` in `frontend/.env` to match |
 | Port already in use | stop the old process, or change the port (update `VITE_BACKEND_URL` + backend CORS origins accordingly) |
 | `uv: command not found` | install `uv` (Section 1) and reopen the terminal |
 | "Speech playback is not supported" | use Chrome/Edge/Firefox; no key or service can fix this, it is browser support |
-| "Camera is not supported" | use Chrome/Edge/Firefox/Safari; camera needs a secure context — `localhost`/`127.0.0.1` work, plain-`http` LAN addresses do not |
+| "Camera is not supported" | use Chrome/Edge/Firefox/Safari; camera needs a secure context — `localhost`/`localhost` work, plain-`http` LAN addresses do not |
 | "Camera permission was denied" | allow camera access in the browser site settings, then press **Use camera** again |
 | "Camera is already in use" | close the other app/tab using the camera and retry |
 | Upstream 502/504 from AI endpoints | Meta API error/timeout; wait and retry, check key/billing in the Meta dashboard |
@@ -113,6 +128,6 @@ curl -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5173/  # 200
 - Uploads are limited to JPEG/PNG/WebP at 5 MiB; questions to 500
   characters; the backend waits at most 60 s per AI request.
 - Camera and speech need a supporting browser; the camera needs a secure
-  context (`localhost`/`127.0.0.1` or HTTPS).
+  context (`localhost`/`localhost` or HTTPS).
 - The app needs internet access to reach the Meta Model API; there is no
   offline mode.

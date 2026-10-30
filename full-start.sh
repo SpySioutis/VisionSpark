@@ -58,23 +58,23 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-echo "-> Starting backend on http://127.0.0.1:${BACKEND_PORT} (log: ${BACKEND_LOG})"
-(cd "$ROOT/backend" && uv run uvicorn app.main:app --host 127.0.0.1 --port "$BACKEND_PORT" --reload) >"$BACKEND_LOG" 2>&1 &
+echo "-> Starting backend on http://localhost:${BACKEND_PORT} (log: ${BACKEND_LOG})"
+(cd "$ROOT/backend" && uv run uvicorn app.main:app --host localhost --port "$BACKEND_PORT" --reload) >"$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 
-echo "-> Starting frontend on http://127.0.0.1:${FRONTEND_PORT} (log: ${FRONTEND_LOG})"
+echo "-> Starting frontend on http://localhost:${FRONTEND_PORT} (log: ${FRONTEND_LOG})"
 (cd "$ROOT/frontend" && npm run dev -- --port "$FRONTEND_PORT") >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 
 echo "-> Waiting for backend health..."
 for _ in $(seq 1 30); do
-  if curl -sf "http://127.0.0.1:${BACKEND_PORT}/health" >/dev/null 2>&1; then
+  if curl -sf "http://localhost:${BACKEND_PORT}/health" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-if curl -sf "http://127.0.0.1:${BACKEND_PORT}/health" >/dev/null 2>&1; then
+if curl -sf "http://localhost:${BACKEND_PORT}/health" >/dev/null 2>&1; then
   echo "   Backend is up."
 else
   echo "[WARN] Backend did not answer within 30s. Check ${BACKEND_LOG}"
@@ -82,13 +82,13 @@ fi
 
 echo "-> Waiting for frontend..."
 for _ in $(seq 1 30); do
-  if curl -sf "http://127.0.0.1:${FRONTEND_PORT}/" >/dev/null 2>&1; then
+  if curl -sf "http://localhost:${FRONTEND_PORT}/" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-APP_URL="http://127.0.0.1:${FRONTEND_PORT}/"
+APP_URL="http://localhost:${FRONTEND_PORT}/"
 if command -v xdg-open >/dev/null 2>&1; then
   xdg-open "$APP_URL" >/dev/null 2>&1 || true
 elif command -v open >/dev/null 2>&1; then
@@ -99,7 +99,7 @@ fi
 
 echo ""
 echo "VisionSpark is running:"
-echo "  App: http://127.0.0.1:${FRONTEND_PORT}/"
-echo "  API: http://127.0.0.1:${BACKEND_PORT}  (docs at /docs)"
+echo "  App: http://localhost:${FRONTEND_PORT}/"
+echo "  API: http://localhost:${BACKEND_PORT}  (docs at /docs)"
 echo "Press Ctrl+C to stop both."
 wait

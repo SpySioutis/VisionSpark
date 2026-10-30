@@ -41,19 +41,19 @@ if not exist "frontend\node_modules" (
   popd
 )
 
-echo -^> Starting backend on http://127.0.0.1:8000 ...
-start "VisionSpark backend" cmd /k "cd /d "%~dp0backend" && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
+echo -^> Starting backend on http://localhost:8000 ...
+start "VisionSpark backend" cmd /k "cd /d "%~dp0backend" && uv run uvicorn app.main:app --host localhost --port 8000 --reload"
 
-echo -^> Starting frontend on http://127.0.0.1:5173 ...
+echo -^> Starting frontend on http://localhost:5173 ...
 start "VisionSpark frontend" cmd /k "cd /d "%~dp0frontend" && npm run dev -- --port 5173"
 
 echo -^> Waiting for frontend and opening browser...
 timeout /t 8 /nobreak >nul
-start "" "http://127.0.0.1:5173/"
+start "" "http://localhost:5173/"
 
 echo.
 echo VisionSpark is running:
-echo   App: http://127.0.0.1:5173/
-echo   API: http://127.0.0.1:8000  ^(docs at /docs^)
+echo   App: http://localhost:5173/
+echo   API: http://localhost:8000  ^(docs at /docs^)
 echo Close the two opened windows to stop.
 pause

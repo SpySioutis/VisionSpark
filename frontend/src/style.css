@@ -1,58 +1,103 @@
-:root {
-  --text: #3f3f46;
-  --text-h: #18181b;
-  --bg: #ffffff;
-  --border: #e4e4e7;
-  --code-bg: #f4f4f5;
-  --accent-bg: #f4f4f5;
+:root,
+:root[data-theme='light'] {
+  --bg: #edf1f0;
+  --surface: #ffffff;
+  --surface-2: #f4f7f6;
+  --text: #2b3533;
+  --text-h: #101918;
+  --muted: #5b6664;
+  --border: #d9e1df;
+  --code-bg: #eef3f2;
+  --accent: #0f766e;
+  --accent-strong: #0b5e58;
+  --accent-soft: #dff0ed;
+  --accent-ink: #073f3a;
   --ok: #166534;
+  --ok-bg: #e3f3e8;
   --err: #b91c1c;
-  --focus: #1d4ed8;
-  --input-border: #71717a;
+  --err-bg: #fbe7e7;
+  --warn-bg: #fdf3e3;
+  --focus: #0e7490;
+  --input-border: #8a9492;
+  --shadow: 0 1px 2px rgba(16, 25, 24, 0.06), 0 8px 24px -12px rgba(16, 25, 24, 0.18);
+  --radius-card: 16px;
+  --radius-control: 10px;
+  --radius-pill: 999px;
 
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
 }
 
+/* Explicit theme choice (Settings dialog) wins over the OS preference;
+   with no data-theme attribute the OS preference below applies. */
+:root[data-theme='dark'] {
+  --bg: #0b1211;
+  --surface: #121c1b;
+  --surface-2: #182625;
+  --text: #c3cfcc;
+  --text-h: #f2f7f6;
+  --muted: #93a3a0;
+  --border: #263836;
+  --code-bg: #1b2928;
+  --accent: #2dd4bf;
+  --accent-strong: #5eead4;
+  --accent-soft: #123d39;
+  --accent-ink: #d7fff8;
+  --ok: #86efac;
+  --ok-bg: #123324;
+  --err: #fca5a5;
+  --err-bg: #3a1a1a;
+  --warn-bg: #33260f;
+  --focus: #67e8f9;
+  --input-border: #4b5e5c;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -12px rgba(0, 0, 0, 0.5);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --text: #a1a1aa;
-    --text-h: #fafafa;
-    --bg: #18181b;
-    --border: #3f3f46;
-    --code-bg: #27272a;
-    --accent-bg: #27272a;
+  :root:not([data-theme]) {
+    --bg: #0b1211;
+    --surface: #121c1b;
+    --surface-2: #182625;
+    --text: #c3cfcc;
+    --text-h: #f2f7f6;
+    --muted: #93a3a0;
+    --border: #263836;
+    --code-bg: #1b2928;
+    --accent: #2dd4bf;
+    --accent-strong: #5eead4;
+    --accent-soft: #123d39;
+    --accent-ink: #d7fff8;
     --ok: #86efac;
+    --ok-bg: #123324;
     --err: #fca5a5;
-    --focus: #93c5fd;
-    --input-border: #a1a1aa;
+    --err-bg: #3a1a1a;
+    --warn-bg: #33260f;
+    --focus: #67e8f9;
+    --input-border: #4b5e5c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -12px rgba(0, 0, 0, 0.5);
   }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: 1.0625rem;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2,
 h3 {
   color: var(--text-h);
-  line-height: 1.25;
-}
-
-h1 {
-  font-size: 2rem;
-}
-
-h2 {
-  font-size: 1.5rem;
-}
-
-h3 {
-  font-size: 1.25rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
 /* Obvious keyboard focus indicator everywhere; never remove without this. */

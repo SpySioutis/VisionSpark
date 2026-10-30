@@ -1,4 +1,4 @@
-# AGENTS.md — AI Agent Working Agreement for VisionSpark
+# AGENTS.md — AI Agent Working Agreement for VisionSparkDemo
 
 Instructions for AI coding agents working in this repository. Humans: see
 `README.md` (overview) and `MANUAL.md` (how to run the program).
@@ -9,12 +9,14 @@ Instructions for AI coding agents working in this repository. Humans: see
   (FastAPI on Python 3.12, managed with **uv**).
 - Features: `GET /health`, `POST /api/segment` (SAM 3.1 bounding boxes),
   `POST /api/ask` (Muse Spark 1.3 Q&A over the full image or a SAM-box
-  crop), frontend SVG box overlay, Web Speech API text-to-speech.
+  crop), frontend SVG box overlay, header settings dialog (language,
+  theme, Web Speech API voice preferences: per-language voice, tone,
+  rate, auto-read toggles).
 - Meta Model API: `https://api.meta.ai/v1/responses`, models `sam-3.1` and
   `muse-spark-1.3`, Bearer auth with `MODEL_API_KEY`.
-- Ports: backend `127.0.0.1:8000`, frontend `127.0.0.1:5173`.
+- Ports: backend `localhost:8000`, frontend `localhost:5173`.
   Frontend talks to the backend via `VITE_BACKEND_URL`
-  (default `http://127.0.0.1:8000`).
+  (default `http://localhost:8000`).
 
 ## 2. Backend rules (`backend/` is the working directory)
 

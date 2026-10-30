@@ -32,6 +32,16 @@ Navigating non-digital printed information—such as product allergen lists, exp
   a detected SAM region; Muse Spark 1.3 answers in plain text.
 * **Read aloud** — the answer can be spoken via the browser's built-in
   speech synthesis (no extra service or key needed).
+* **Settings dialog** — the header gear button opens language, color theme
+  (system/light/dark), and voice preferences: woman's/man's/automatic or
+  specific system voice (remembered per language), tone and speaking rate,
+  auto-read toggles, and a preview button. Remembered on-device.
+* **Audio-first wizard** — one action per screen (Photo → Check → Ask →
+  Listen) with spoken status updates and a sticky Back/Continue/audio bar.
+* **One-tap questions** — preset question buttons (read label, allergens,
+  expiry date) that ask immediately with no typing needed.
+* **Languages** — the whole UI (English, French, Spanish, Greek,
+  Chinese) plus spoken answers and model answers in the selected language.
 * **Accessible UI** — native controls, keyboard support, labeled SVG overlay,
   and live-region status updates.
 
@@ -49,8 +59,8 @@ cp backend/.env.example backend/.env
 # Windows: double-click full-start.bat | macOS: double-click full-start.command
 ```
 
-Then open **http://127.0.0.1:5173/** (backend API at
-**http://127.0.0.1:8000**, docs at `/docs`).
+Then open **http://localhost:5173/** (backend API at
+**http://localhost:8000**, docs at `/docs`).
 
 Full instructions, manual start commands, and troubleshooting: see
 **[MANUAL.md](MANUAL.md)**. Presenter walkthrough: see
