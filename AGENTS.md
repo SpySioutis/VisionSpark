@@ -9,7 +9,8 @@ Instructions for AI coding agents working in this repository. Humans: see
   (FastAPI on Python 3.12, managed with **uv**).
 - Features: `GET /health`, `POST /api/segment` (SAM 3.1 bounding boxes),
   `POST /api/ask` (Muse Spark 1.3 Q&A over the full image or a SAM-box
-  crop), frontend SVG box overlay, header settings dialog (language,
+  crop), frontend SVG box overlay, camera capture, 4-step audio-first
+  wizard (Photo → Check → Ask → Listen), header settings dialog (language,
   theme, Web Speech API voice preferences: per-language voice, tone,
   rate, auto-read toggles).
 - Meta Model API: `https://api.meta.ai/v1/responses`, models `sam-3.1` and
@@ -52,7 +53,7 @@ Instructions for AI coding agents working in this repository. Humans: see
 
 ```bash
 cd backend && uv run pytest -q && uv run ruff check . && uv run ruff format --check .
-cd frontend && npm run build
+cd frontend && npm run verify
 ```
 
 - Fix failures before reporting. Never claim a live HTTP check passed unless

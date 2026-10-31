@@ -48,7 +48,15 @@ echo -^> Starting frontend on http://localhost:5173 ...
 start "VisionSpark frontend" cmd /k "cd /d "%~dp0frontend" && npm run dev -- --port 5173"
 
 echo -^> Waiting for frontend and opening browser...
-timeout /t 8 /nobreak >nul
+set "TRIES=0"
+:healthloop
+curl -sf http://localhost:8000/health >nul 2>nul
+if not errorlevel 1 goto healthok
+set /a TRIES+=1
+if %TRIES% GEQ 30 goto healthok
+timeout /t 1 /nobreak >nul
+goto healthloop
+:healthok
 start "" "http://localhost:5173/"
 
 echo.

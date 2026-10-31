@@ -38,8 +38,9 @@ Navigating non-digital printed information—such as product allergen lists, exp
   auto-read toggles, and a preview button. Remembered on-device.
 * **Audio-first wizard** — one action per screen (Photo → Check → Ask →
   Listen) with spoken status updates and a sticky Back/Continue/audio bar.
-* **One-tap questions** — preset question buttons (read label, allergens,
-  expiry date) that ask immediately with no typing needed.
+* **One-tap questions** — four preset question buttons (read label,
+  allergens, expiry date, "What is in this image?") that ask immediately
+  with no typing needed.
 * **Languages** — the whole UI (English, French, Spanish, Greek,
   Chinese) plus spoken answers and model answers in the selected language.
 * **Accessible UI** — native controls, keyboard support, labeled SVG overlay,
@@ -63,8 +64,8 @@ Then open **http://localhost:5173/** (backend API at
 **http://localhost:8000**, docs at `/docs`).
 
 Full instructions, manual start commands, and troubleshooting: see
-**[MANUAL.md](MANUAL.md)**. Presenter walkthrough: see
-**[AGENTS.md](AGENTS.md)**.
+**[MANUAL.md](MANUAL.md)**. AI coding agents: see
+**[AGENTS.md](AGENTS.md)** (working agreement).
 
 ## 🗂️ Project Structure
 

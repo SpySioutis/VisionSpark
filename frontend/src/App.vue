@@ -1,102 +1,94 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ANSWER_LANG_NAME, LOCALES, STRINGS, VOICE_LANG, translate } from './i18n.js'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { ANSWER_LANG_NAME, LOCALES } from './i18n.js'
+import { usePreferences } from './composables/usePreferences.js'
+import { useBackendStatus } from './composables/useBackendStatus.js'
+import { useSpeech } from './composables/useSpeech.js'
+import { useCamera } from './composables/useCamera.js'
+import { paddedCropRect, scaleBox } from './lib/boxes.js'
 
 const backendUrl =
   import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000'
 
-// Backend reachability is checked automatically (on load, then every 30 s).
-// There is no manual health check in the UI.
-const status = ref('idle') // 'idle' | 'success' | 'error'
-let statusTimer = null
+// Set on unmount; async callbacks check it via isDisposed() before touching state.
+let disposed = false
+const isDisposed = () => disposed
 
-// UI language (English, French, Spanish, Greek, Chinese).
-// Persisted across visits; otherwise English.
-const LOCALE_KEY = 'visionspark-locale'
-function detectLocale() {
-  try {
-    const stored = localStorage.getItem(LOCALE_KEY)
-    if (stored && STRINGS[stored]) {
-      return stored
-    }
-  } catch {
-    // Private mode or blocked storage: fall through to browser language.
-  }
-  // Default is always English; a stored choice wins when present.
-  return 'en'
-}
-const locale = ref(detectLocale())
-function t(key, params) {
-  return translate(locale.value, key, params)
-}
-watch(locale, (value) => {
-  try {
-    localStorage.setItem(LOCALE_KEY, value)
-  } catch {
-    // Storage unavailable: the choice still applies for this visit.
-  }
-  if (typeof document !== 'undefined') {
-    document.documentElement.lang = value
-  }
-})
-if (typeof document !== 'undefined') {
-  document.documentElement.lang = locale.value
-}
+const prefs = usePreferences()
+const { locale, theme, voicePrefs, currentVoice, t } = prefs
+// Backend status is polled before voices load, as before.
+const { status } = useBackendStatus({ backendUrl, isDisposed })
+const {
+  speechSupported,
+  isSpeaking,
+  speechNote,
+  voiceOptions,
+  speakStatus,
+  readAnswerAloud,
+  previewVoice,
+  cancelSpeech,
+  stopSpeaking,
+} = useSpeech({ prefs, isDisposed })
+const {
+  cameraSupported,
+  camStatus,
+  camDetail,
+  camFlash,
+  videoEl,
+  startCamera,
+  stopCamera,
+  capturePhoto,
+} = useCamera({ t, speakStatus, isDisposed, onCapture: handleCameraCapture })
 
-// Color theme (System, Light, Dark), persisted like the locale. An
-// explicit choice sets data-theme on <html>; System removes it so the
-// OS preference in style.css applies.
-const THEME_KEY = 'visionspark-theme'
-function loadTheme() {
-  try {
-    const stored = localStorage.getItem(THEME_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') {
-      return stored
-    }
-  } catch {
-    // Private mode or blocked storage: fall through to System.
-  }
-  return 'system'
-}
-const theme = ref(loadTheme())
-function applyTheme() {
-  if (typeof document === 'undefined') {
-    return
-  }
-  if (theme.value === 'system') {
-    document.documentElement.removeAttribute('data-theme')
-  } else {
-    document.documentElement.dataset.theme = theme.value
+// Camera captures feed the same image state as file uploads.
+function handleCameraCapture(file) {
+  fileError.value = null
+  setSelectedFile(file)
+  if (fileInputEl.value) {
+    fileInputEl.value.value = ''
   }
 }
-watch(theme, (value) => {
-  try {
-    localStorage.setItem(THEME_KEY, value)
-  } catch {
-    // Storage unavailable: the choice still applies for this visit.
-  }
-  applyTheme()
-})
-applyTheme()
 
 const MAX_BYTES = 5 * 1024 * 1024
-const MAX_CAPTURE_EDGE = 1600
+const MAX_QUESTION_CHARS = 500
+const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const selectedFile = ref(null)
+// Step-1 upload error as a message descriptor (or null), like the other details.
+const fileError = ref(null)
 const fileInputEl = ref(null)
 const prompt = ref('label')
 const segStatus = ref('idle') // 'idle' | 'loading' | 'success' | 'error'
-const segDetail = ref('')
+// Translatable message descriptors ({ key, params }) or null, rendered via
+// msgText() so they follow locale changes. { text } keeps raw text as-is.
+const segDetail = ref(null)
 const boxes = ref([])
 
 // Visual question answering reuses the uploaded image.
 const question = ref('')
 const askStatus = ref('idle') // 'idle' | 'loading' | 'success' | 'error'
-const askDetail = ref('')
+const askDetail = ref(null)
 const answer = ref('')
 // What the next (or last) answer covers: 'full' or 'region' + regionIndex.
 const askTarget = ref('full')
 const regionIndex = ref(0)
-const answerSource = ref('')
+// What the last answer covered (kind + region), rendered via answerSourceText.
+const answerKind = ref('') // '' | 'full' | 'region'
+const answerRegion = ref(0)
+const answerSourceText = computed(() => {
+  if (answerKind.value === 'region') {
+    return t('srcRegion', { n: answerRegion.value + 1 })
+  }
+  if (answerKind.value === 'full') {
+    return t('srcFull')
+  }
+  return ''
+})
+// Re-entry guard: askStatus becomes 'loading' only after the region crop,
+// so a double tap during the crop would otherwise send two requests.
+let askInFlight = false
+// True while the region crop is running (before askStatus flips to loading).
+const cropping = ref(false)
+const askBusy = computed(() => askStatus.value === 'loading' || cropping.value)
 
 // Audio-first wizard: one screen per action.
 // 1 = Photo (capture/upload), 2 = Check (preview + find region),
@@ -105,299 +97,6 @@ const step = ref(1)
 const STEP_NAMES = ['wizPhoto', 'wizCheck', 'wizAsk', 'wizListen']
 function stepName(n) {
   return t(STEP_NAMES[n - 1] ?? 'wizPhoto')
-}
-
-// Text-to-speech for the Q&A answer via the Web Speech API (no backend needed).
-const speechSupported =
-  typeof window !== 'undefined' &&
-  'speechSynthesis' in window &&
-  'SpeechSynthesisUtterance' in window
-const isSpeaking = ref(false)
-const speechNote = ref('')
-let disposed = false
-
-// Voice preferences: speaking rate, tone (pitch), per-language voice
-// choice, auto-read and spoken-announcement toggles. Persisted across
-// visits like the locale. Each `voices[locale]` entry is '' (system
-// default), 'feminine', 'masculine', or a specific voiceURI, so switching
-// languages never leaves a foreign-language voice selected.
-const VOICE_PREFS_KEY = 'visionspark-voice-prefs'
-const MIN_RATE = 0.5
-const MAX_RATE = 2
-const MIN_PITCH = 0.5
-const MAX_PITCH = 1.5
-function clampRate(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) {
-    return 1
-  }
-  return Math.min(MAX_RATE, Math.max(MIN_RATE, n))
-}
-function clampPitch(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) {
-    return 1
-  }
-  return Math.min(MAX_PITCH, Math.max(MIN_PITCH, n))
-}
-function loadVoicePrefs() {
-  const prefs = { rate: 1, pitch: 1, voices: {}, autoRead: true, announce: true }
-  try {
-    const stored = JSON.parse(localStorage.getItem(VOICE_PREFS_KEY) ?? 'null')
-    if (stored && typeof stored === 'object') {
-      prefs.rate = clampRate(stored.rate)
-      prefs.pitch = clampPitch(stored.pitch)
-      if (stored.voices && typeof stored.voices === 'object') {
-        for (const [code, choice] of Object.entries(stored.voices)) {
-          if (typeof choice === 'string') {
-            prefs.voices[code] = choice
-          }
-        }
-      } else {
-        // Migrate the pre-per-language single choice onto the current locale.
-        const legacy = stored.voice ?? stored.voiceURI
-        if (typeof legacy === 'string' && legacy) {
-          prefs.voices[locale.value] = legacy
-        }
-      }
-      prefs.autoRead = stored.autoRead !== false
-      prefs.announce = stored.announce !== false
-    }
-  } catch {
-    // Private mode or corrupt data: fall through to defaults.
-  }
-  return prefs
-}
-const voicePrefs = ref(loadVoicePrefs())
-watch(
-  voicePrefs,
-  (value) => {
-    try {
-      localStorage.setItem(VOICE_PREFS_KEY, JSON.stringify(value))
-    } catch {
-      // Storage unavailable: the choice still applies for this visit.
-    }
-  },
-  { deep: true },
-)
-
-// The voice choice for the current UI language (bound to the picker).
-const currentVoice = computed({
-  get: () => voicePrefs.value.voices[locale.value] ?? '',
-  set: (value) => {
-    voicePrefs.value.voices[locale.value] = value
-  },
-})
-
-// System voices for the speech picker. Browsers load these
-// asynchronously, so the list refreshes via onvoiceschanged.
-const availableVoices = ref([])
-function refreshVoices() {
-  if (!speechSupported || disposed) {
-    return
-  }
-  try {
-    availableVoices.value = window.speechSynthesis.getVoices()
-  } catch {
-    availableVoices.value = []
-  }
-}
-// Voices matching the UI language first; fall back to the full list when
-// none match (some browsers report unusual language tags).
-const matchingVoices = computed(() => {
-  const prefix = (VOICE_LANG[locale.value] ?? 'en-US').split('-')[0].toLowerCase()
-  const matching = availableVoices.value.filter((voice) =>
-    (voice.lang ?? '').toLowerCase().startsWith(prefix),
-  )
-  return matching.length > 0 ? matching : availableVoices.value
-})
-const selectedVoice = computed(() => {
-  const choice = currentVoice.value
-  // Style shortcuts ('feminine'/'masculine') resolve dynamically in
-  // resolveVoice(); only a stored voiceURI points at a specific voice.
-  if (!choice || choice === 'feminine' || choice === 'masculine') {
-    return null
-  }
-  return (
-    availableVoices.value.find((voice) => voice.voiceURI === choice) ?? null
-  )
-})
-// Picker options: matching voices, plus the stored choice on top when it
-// is not among them (e.g. a voice whose language tag the browser reports
-// oddly) so the select never renders blank.
-const voiceOptions = computed(() => {
-  if (selectedVoice.value && !matchingVoices.value.includes(selectedVoice.value)) {
-    return [selectedVoice.value, ...matchingVoices.value]
-  }
-  return matchingVoices.value
-})
-// Best-effort guess of a system voice's perceived style from its name: the
-// Web Speech API exposes no gender metadata, so Woman/Man matches these
-// hints and falls back to the default voice when nothing matches.
-// Whole-word matching keeps "man" from matching "german"/"woman" and
-// "male" from matching "female".
-const FEMININE_VOICE_HINTS = [
-  'female', 'woman', 'women', 'lady', 'feminine', 'girl',
-  'samantha', 'victoria', 'zira', 'aria', 'jenny', 'sonia', 'karen',
-  'moira', 'tessa', 'veena', 'susan', 'kate', 'serena', 'amelie',
-  'marie', 'anna', 'helena', 'katja', 'paulina',
-]
-const MASCULINE_VOICE_HINTS = [
-  'male', 'man', 'men', 'masculine', 'boy',
-  'daniel', 'david', 'alex', 'fred', 'guy', 'davis', 'jason',
-  'george', 'thomas', 'paul', 'rafael', 'horst', 'pablo',
-]
-function guessVoiceGender(voice) {
-  const text = `${voice?.name ?? ''} ${voice?.voiceURI ?? ''}`.toLowerCase()
-  const has = (hint) => new RegExp(`\\b${hint}\\b`).test(text)
-  if (FEMININE_VOICE_HINTS.some(has)) {
-    return 'feminine'
-  }
-  if (MASCULINE_VOICE_HINTS.some(has)) {
-    return 'masculine'
-  }
-  return null
-}
-function resolveVoice() {
-  const choice = currentVoice.value
-  if (!choice) {
-    return null
-  }
-  if (choice === 'feminine' || choice === 'masculine') {
-    return (
-      matchingVoices.value.find((voice) => guessVoiceGender(voice) === choice) ??
-      availableVoices.value.find((voice) => guessVoiceGender(voice) === choice) ??
-      null
-    )
-  }
-  return (
-    availableVoices.value.find((voice) => voice.voiceURI === choice) ?? null
-  )
-}
-function configureUtterance(utterance) {
-  utterance.lang = VOICE_LANG[locale.value] ?? 'en-US'
-  utterance.rate = clampRate(voicePrefs.value.rate)
-  utterance.pitch = clampPitch(voicePrefs.value.pitch)
-  const voice = resolveVoice()
-  if (voice) {
-    utterance.voice = voice
-    utterance.lang = voice.lang
-  }
-}
-
-function announceSpeech(text) {
-  if (!disposed) {
-    speechNote.value = text
-  }
-}
-
-function cancelSpeech() {
-  if (speechSupported) {
-    window.speechSynthesis.cancel()
-  }
-  if (!disposed) {
-    isSpeaking.value = false
-  }
-}
-
-function stopSpeaking() {
-  const wasSpeaking = isSpeaking.value
-  cancelSpeech()
-  if (wasSpeaking) {
-    announceSpeech(t('srStopped'))
-  }
-}
-
-function readAnswerAloud() {
-  if (!speechSupported || !answer.value) {
-    return
-  }
-  cancelSpeech()
-  const utterance = new SpeechSynthesisUtterance(answer.value)
-  configureUtterance(utterance)
-  // Programmatic cancels set isSpeaking false synchronously first, so a
-  // still-true flag here means a genuine end or error worth announcing.
-  utterance.onend = () => {
-    if (!disposed && isSpeaking.value) {
-      isSpeaking.value = false
-      speechNote.value = t('srDone')
-    }
-  }
-  utterance.onerror = () => {
-    if (!disposed && isSpeaking.value) {
-      isSpeaking.value = false
-      speechNote.value = t('srInterrupted')
-    }
-  }
-  isSpeaking.value = true
-  announceSpeech(t('srReading'))
-  window.speechSynthesis.speak(utterance)
-}
-
-// Short spoken status updates ("Photo ready", "Found 3 objects").
-// Uses the same synthesis queue as the answer so Stop cancels either one;
-// the sr-only live region mirrors the text for screen-reader users.
-// When announcements are off, only the live region updates (no audio).
-function speakStatus(text) {
-  if (!text || disposed) {
-    return
-  }
-  if (!speechSupported || !voicePrefs.value.announce) {
-    announceSpeech(text)
-    return
-  }
-  cancelSpeech()
-  const utterance = new SpeechSynthesisUtterance(text)
-  configureUtterance(utterance)
-  utterance.onend = () => {
-    if (!disposed && isSpeaking.value) {
-      isSpeaking.value = false
-    }
-  }
-  utterance.onerror = () => {
-    if (!disposed && isSpeaking.value) {
-      isSpeaking.value = false
-    }
-  }
-  isSpeaking.value = true
-  announceSpeech(text)
-  try {
-    window.speechSynthesis.speak(utterance)
-  } catch {
-    if (!disposed) {
-      isSpeaking.value = false
-    }
-  }
-}
-
-// Voice-preferences preview: speaks a sample with the current rate and
-// voice even when spoken announcements are turned off.
-function previewVoice() {
-  if (!speechSupported || isSpeaking.value || disposed) {
-    return
-  }
-  cancelSpeech()
-  const utterance = new SpeechSynthesisUtterance(t('voicePreviewSample'))
-  configureUtterance(utterance)
-  utterance.onend = () => {
-    if (!disposed && isSpeaking.value) {
-      isSpeaking.value = false
-    }
-  }
-  utterance.onerror = () => {
-    if (!disposed && isSpeaking.value) {
-      isSpeaking.value = false
-    }
-  }
-  isSpeaking.value = true
-  announceSpeech(t('srReading'))
-  try {
-    window.speechSynthesis.speak(utterance)
-  } catch {
-    if (!disposed) {
-      isSpeaking.value = false
-    }
-  }
 }
 
 // Wizard navigation. Leaving step 1 stops a live camera (hidden video
@@ -447,6 +146,7 @@ function startOver() {
     fileInputEl.value.value = ''
   }
   setSelectedFile(null)
+  fileError.value = null
   goStep(1)
 }
 
@@ -481,7 +181,7 @@ const primaryDisabled = computed(() => {
     return segStatus.value === 'loading'
   }
   if (step.value === 3) {
-    return askStatus.value === 'loading' || !selectedFile.value || !question.value.trim()
+    return askBusy.value || !selectedFile.value || !question.value.trim()
   }
   return false
 })
@@ -518,166 +218,12 @@ watch(answer, () => {
   cancelSpeech()
 })
 
-// Camera capture. The stream starts only after an explicit user action and
-// every track is stopped on capture, stop, image switch, or unmount.
-const cameraSupported =
-  typeof navigator !== 'undefined' &&
-  !!navigator.mediaDevices?.getUserMedia
-const camStatus = ref('idle') // 'idle' | 'starting' | 'live' | 'error'
-const camDetail = ref('')
-const camFlash = ref('')
-const videoEl = ref(null)
-let mediaStream = null
-let cameraGen = 0
-
-function stopTracks() {
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((track) => track.stop())
-    mediaStream = null
-  }
-  if (videoEl.value) {
-    videoEl.value.srcObject = null
-  }
-}
-
-function stopCamera() {
-  cameraGen += 1 // invalidate any in-flight getUserMedia request
-  stopTracks()
-  if (!disposed) {
-    camStatus.value = 'idle'
-    camFlash.value = ''
-  }
-}
-
-function cameraErrorMessage(error) {
-  switch (error?.name) {
-    case 'NotAllowedError':
-    case 'SecurityError':
-      return t('camErrDenied')
-    case 'NotFoundError':
-    case 'DevicesNotFoundError':
-    case 'OverconstrainedError':
-      return t('camErrNoCam')
-    case 'NotReadableError':
-    case 'TrackStartError':
-      return t('camErrBusy')
-    case 'AbortError':
-      return t('camErrAbort')
-    default:
-      return t('camErrGeneric')
-  }
-}
-
-async function startCamera() {
-  if (
-    !cameraSupported ||
-    camStatus.value === 'starting' ||
-    camStatus.value === 'live'
-  ) {
-    return
-  }
-  const gen = ++cameraGen
-  camStatus.value = 'starting'
-  camDetail.value = ''
-  camFlash.value = ''
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
-      audio: false,
-    })
-    if (gen !== cameraGen || disposed) {
-      stream.getTracks().forEach((track) => track.stop())
-      return
-    }
-    mediaStream = stream
-    await nextTick()
-    if (gen !== cameraGen || disposed || !videoEl.value) {
-      stopTracks()
-      return
-    }
-    videoEl.value.srcObject = stream
-    try {
-      await videoEl.value.play()
-    } catch {
-      // Autoplay attribute covers most cases; a paused frame can still render.
-    }
-    if (disposed) {
-      stopTracks()
-      return
-    }
-    camStatus.value = 'live'
-  } catch (error) {
-    if (gen !== cameraGen || disposed) {
-      return
-    }
-    stopTracks()
-    camStatus.value = 'error'
-    camDetail.value = cameraErrorMessage(error)
-  }
-}
-
-function capturePhoto() {
-  const video = videoEl.value
-  if (!video || camStatus.value !== 'live' || !video.videoWidth) {
-    stopTracks()
-    camStatus.value = 'error'
-    camDetail.value = t('camErrNoFrame')
-    return
-  }
-  const scale = Math.min(
-    1,
-    MAX_CAPTURE_EDGE / Math.max(video.videoWidth, video.videoHeight),
-  )
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.round(video.videoWidth * scale)
-  canvas.height = Math.round(video.videoHeight * scale)
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    stopTracks()
-    camStatus.value = 'error'
-    camDetail.value = t('camErrCapture')
-    return
-  }
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-  canvas.toBlob(
-    (blob) => {
-      if (disposed) {
-        return
-      }
-      if (!blob) {
-        stopTracks()
-        camStatus.value = 'error'
-        camDetail.value = t('camErrCapture')
-        return
-      }
-      setSelectedFile(
-        new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' }),
-      )
-      if (fileInputEl.value) {
-        fileInputEl.value.value = ''
-      }
-      stopTracks()
-      camStatus.value = 'idle'
-      camFlash.value = t('camCaptured')
-      // Defer so the invalidated-answer watcher (queued by setSelectedFile)
-      // flushes first and cannot cancel this announcement.
-      nextTick(() => {
-        if (!disposed) {
-          speakStatus(t('speakPhotoReady'))
-        }
-      })
-    },
-    'image/jpeg',
-    0.85,
-  )
-}
-
 // Image preview + overlay state. The SVG overlay uses the image's natural
-// pixel dimensions as its viewBox so box coordinates map 1:1.
+// pixel dimensions as its viewBox so scaled box coordinates map 1:1.
 const previewUrl = ref(null)
 const previewImgEl = ref(null)
 const naturalSize = ref({ w: 0, h: 0 })
-const imgError = ref('')
+const imgError = ref(null)
 
 function revokePreview() {
   if (previewUrl.value) {
@@ -689,7 +235,7 @@ function revokePreview() {
 function setPreview() {
   revokePreview()
   naturalSize.value = { w: 0, h: 0 }
-  imgError.value = ''
+  imgError.value = null
   if (selectedFile.value) {
     previewUrl.value = URL.createObjectURL(selectedFile.value)
   }
@@ -703,67 +249,72 @@ function labelY(box) {
   return box.y1 - 8 >= s ? box.y1 - 8 : box.y1 + s + 2
 }
 
+// Overlay boxes in natural-image pixels; each entry keeps the original box
+// (for the <title>) and its index (so the label number stays index + 1).
+const overlayBoxes = computed(() => {
+  const nw = naturalSize.value.w
+  const nh = naturalSize.value.h
+  const out = []
+  boxes.value.forEach((box, index) => {
+    const scaled = scaleBox(box, nw, nh)
+    if (scaled) {
+      out.push({ ...scaled, index, box })
+    }
+  })
+  return out
+})
+
 function onImgLoad(event) {
   naturalSize.value = {
     w: event.target.naturalWidth,
     h: event.target.naturalHeight,
   }
-  imgError.value = ''
+  imgError.value = null
 }
 
 function onImgError() {
   naturalSize.value = { w: 0, h: 0 }
-  imgError.value = t('imgErr')
+  imgError.value = { key: 'imgErr' }
 }
 
 // Crop a SAM box (source-pixel coords in the token's w/h frame) out of the
 // original image at its intrinsic size, with 5% padding clamped to bounds.
 function cropRegion(box, index) {
   return new Promise((resolve, reject) => {
-    const fail = (message) => reject(new Error(message))
+    // Failures reject with message descriptors so the caller can store and
+    // speak them in the current locale.
+    const fail = (message) => reject(message)
     const img = previewImgEl.value
     const nw = naturalSize.value.w
     const nh = naturalSize.value.h
     if (!img || !nw || !nh) {
-      fail(t('cropLoading'))
+      fail({ key: 'cropLoading' })
       return
     }
-    const coords = [box.x1, box.y1, box.x2, box.y2, box.w, box.h]
-    if (
-      !coords.every((n) => Number.isFinite(n)) ||
-      box.w <= 0 ||
-      box.h <= 0 ||
-      box.x2 <= box.x1 ||
-      box.y2 <= box.y1
-    ) {
-      fail(t('cropInvalid'))
+    const scaled = scaleBox(box, nw, nh)
+    if (!scaled || scaled.x2 <= scaled.x1 || scaled.y2 <= scaled.y1) {
+      fail({ key: 'cropInvalid' })
       return
     }
-    const sx = nw / box.w
-    const sy = nh / box.h
-    const padX = (box.x2 - box.x1) * sx * 0.05
-    const padY = (box.y2 - box.y1) * sy * 0.05
-    const cx1 = Math.max(0, Math.round(box.x1 * sx - padX))
-    const cy1 = Math.max(0, Math.round(box.y1 * sy - padY))
-    const cx2 = Math.min(nw, Math.round(box.x2 * sx + padX))
-    const cy2 = Math.min(nh, Math.round(box.y2 * sy + padY))
-    if (cx2 <= cx1 || cy2 <= cy1) {
-      fail(t('cropEmpty'))
+    const rect = paddedCropRect(scaled, nw, nh)
+    if (!rect) {
+      fail({ key: 'cropEmpty' })
       return
     }
+    const { cx1, cy1, cx2, cy2 } = rect
     const canvas = document.createElement('canvas')
     canvas.width = cx2 - cx1
     canvas.height = cy2 - cy1
     const ctx = canvas.getContext('2d')
     if (!ctx) {
-      fail(t('cropFail'))
+      fail({ key: 'cropFail' })
       return
     }
     ctx.drawImage(img, cx1, cy1, cx2 - cx1, cy2 - cy1, 0, 0, canvas.width, canvas.height)
     canvas.toBlob(
       (blob) => {
         if (!blob) {
-          fail(t('cropFail'))
+          fail({ key: 'cropFail' })
           return
         }
         resolve(
@@ -782,7 +333,7 @@ watch(prompt, () => {
     return
   }
   segStatus.value = 'idle'
-  segDetail.value = ''
+  segDetail.value = null
   boxes.value = []
   // Region targets die with the boxes; fall back to the full image.
   askTarget.value = 'full'
@@ -814,35 +365,20 @@ watch(regionIndex, () => {
 
 onBeforeUnmount(() => {
   disposed = true
-  cameraGen += 1
-  if (speechSupported) {
-    try {
-      if (window.speechSynthesis.onvoiceschanged === refreshVoices) {
-        window.speechSynthesis.onvoiceschanged = null
-      }
-    } catch {
-      // Already torn down.
-    }
-  }
-  if (statusTimer !== null) {
-    clearInterval(statusTimer)
-    statusTimer = null
-  }
-  stopTracks()
   revokePreview()
-  cancelSpeech()
 })
 
 function clearAnswer() {
   askStatus.value = 'idle'
-  askDetail.value = ''
+  askDetail.value = null
   answer.value = ''
-  answerSource.value = ''
+  answerKind.value = ''
+  answerRegion.value = 0
 }
 
 function resetResults() {
   segStatus.value = 'idle'
-  segDetail.value = ''
+  segDetail.value = null
   boxes.value = []
   askTarget.value = 'full'
   regionIndex.value = 0
@@ -857,7 +393,28 @@ function setSelectedFile(file) {
 
 function onFileChange(event) {
   stopCamera()
-  setSelectedFile(event.target.files?.[0] ?? null)
+  const file = event.target.files?.[0] ?? null
+  let errorKey = null
+  if (file && !SUPPORTED_IMAGE_TYPES.includes(file.type)) {
+    errorKey = 'errFileType'
+  } else if (file && file.size > MAX_BYTES) {
+    errorKey = 'errTooBig'
+  }
+  if (errorKey) {
+    fileError.value = { key: errorKey }
+    event.target.value = ''
+    setSelectedFile(null)
+    // Defer so the invalidated-answer watcher flushes first (same pattern
+    // as the success announcement below).
+    nextTick(() => {
+      if (!disposed) {
+        speakStatus(msgText(fileError.value))
+      }
+    })
+    return
+  }
+  fileError.value = null
+  setSelectedFile(file)
   if (selectedFile.value) {
     // Defer so the invalidated-answer watcher flushes first (see above).
     nextTick(() => {
@@ -868,45 +425,95 @@ function onFileChange(event) {
   }
 }
 
+// Render a stored message descriptor in the current locale.
+function msgText(msg) {
+  if (!msg) {
+    return ''
+  }
+  return 'text' in msg ? msg.text : t(msg.key, msg.params)
+}
+
+// Normalize a caught failure into a stored message: our own throws are
+// already descriptors, genuine Errors keep their text, anything else is
+// an unknown error.
+function asMsg(error) {
+  if (error && typeof error === 'object' && 'key' in error) {
+    return error
+  }
+  return error instanceof Error ? { text: error.message } : { key: 'unknownErr' }
+}
+
+// Backend detail strings are English-only, so map HTTP failures to localized
+// messages instead of showing body.detail (which can also be a 422 array).
+function httpError(status) {
+  if (status === 413) {
+    return { key: 'errTooBig' }
+  }
+  if (status === 415) {
+    return { key: 'errFileType' }
+  }
+  if (status === 400 || status === 422) {
+    return { key: 'errRequest' }
+  }
+  if (status === 503) {
+    return { key: 'errNotConfigured' }
+  }
+  if (status === 502) {
+    return { key: 'errProvider' }
+  }
+  if (status === 504) {
+    return { key: 'errTimeout' }
+  }
+  return { key: 'errServer', params: { status } }
+}
+
+function networkError() {
+  return { key: 'errNetwork' }
+}
+
 async function runSegmentation() {
   if (!selectedFile.value) {
     return
   }
   if (selectedFile.value.size > MAX_BYTES) {
     segStatus.value = 'error'
-    segDetail.value = t('errTooBig')
-    speakStatus(segDetail.value)
+    segDetail.value = { key: 'errTooBig' }
+    speakStatus(msgText(segDetail.value))
     return
   }
   const trimmedPrompt = prompt.value.trim()
   if (!trimmedPrompt) {
     segStatus.value = 'error'
-    segDetail.value = t('errPromptEmpty')
-    speakStatus(segDetail.value)
+    segDetail.value = { key: 'errPromptEmpty' }
+    speakStatus(msgText(segDetail.value))
     return
   }
   const sentFile = selectedFile.value
   const sentPrompt = trimmedPrompt
   segStatus.value = 'loading'
-  segDetail.value = ''
+  segDetail.value = null
   boxes.value = []
   try {
     const form = new FormData()
     form.append('image', sentFile)
     form.append('prompt', sentPrompt)
-    const response = await fetch(`${backendUrl}/api/segment`, {
-      method: 'POST',
-      body: form,
-    })
+    let response
+    try {
+      response = await fetch(`${backendUrl}/api/segment`, {
+        method: 'POST',
+        body: form,
+      })
+    } catch {
+      throw networkError()
+    }
     if (!response.ok) {
-      const body = await response.json().catch(() => null)
-      throw new Error(body?.detail ?? `HTTP ${response.status}`)
+      throw httpError(response.status)
     }
     const data = await response.json()
     // Drop late responses if the user moved on to another image or prompt.
     if (selectedFile.value !== sentFile || prompt.value.trim() !== sentPrompt) {
       segStatus.value = 'idle'
-      segDetail.value = ''
+      segDetail.value = null
       boxes.value = []
       return
     }
@@ -917,190 +524,186 @@ async function runSegmentation() {
     }
     // A region answer refers to the previous boxes; a full-image answer
     // about the same image stays valid.
-    if (askStatus.value === 'success' && answerSource.value !== t('srcFull')) {
+    if (askStatus.value === 'success' && answerKind.value !== 'full') {
       clearAnswer()
     }
     segStatus.value = 'success'
     segDetail.value =
       boxes.value.length === 0
-        ? t('noObjects')
+        ? { key: 'noObjects' }
         : boxes.value.length === 1
-          ? t('foundOne')
-          : t('foundN', { count: boxes.value.length })
+          ? { key: 'foundOne' }
+          : { key: 'foundN', params: { count: boxes.value.length } }
     // Let invalidated-answer watchers settle first so they cannot cancel
     // this announcement (same pattern as the answer speech in runAsk).
     await nextTick()
     if (!disposed && segStatus.value === 'success') {
-      speakStatus(segDetail.value)
+      speakStatus(msgText(segDetail.value))
     }
   } catch (error) {
     if (selectedFile.value !== sentFile || prompt.value.trim() !== sentPrompt) {
       segStatus.value = 'idle'
-      segDetail.value = ''
+      segDetail.value = null
       boxes.value = []
       return
     }
     segStatus.value = 'error'
-    segDetail.value = error instanceof Error ? error.message : t('unknownErr')
-    speakStatus(segDetail.value)
+    segDetail.value = asMsg(error)
+    speakStatus(msgText(segDetail.value))
   }
 }
 
+// Suffix that steers the answer language; empty for English.
+function answerSuffix() {
+  const answerLang = ANSWER_LANG_NAME[locale.value]
+  return answerLang ? `\n\nPlease answer in ${answerLang}.` : ''
+}
+
+// Room left for the typed question once the suffix is appended upstream.
+const questionMax = computed(() => MAX_QUESTION_CHARS - answerSuffix().length)
+
 async function runAsk() {
+  if (askInFlight) {
+    return
+  }
   if (!selectedFile.value) {
     return
   }
   const trimmedQuestion = question.value.trim()
   if (!trimmedQuestion) {
     askStatus.value = 'error'
-    askDetail.value = t('errNoQuestion')
-    speakStatus(askDetail.value)
+    askDetail.value = { key: 'errNoQuestion' }
+    speakStatus(msgText(askDetail.value))
     return
   }
-  // Resolve which pixels to send. Region mode never silently falls back:
-  // without a valid box the request is refused with a clear message.
-  let imageToSend = selectedFile.value
-  let sourceLabel = t('srcFull')
-  const sentKind = askTarget.value
-  const sentRegion = regionIndex.value
-  if (askTarget.value === 'region') {
-    const box = boxes.value[regionIndex.value]
-    if (!box) {
-      askStatus.value = 'error'
-      askDetail.value = t('regionGone')
-      speakStatus(askDetail.value)
-      return
-    }
-    const preCropFile = selectedFile.value
-    try {
-      imageToSend = await cropRegion(box, sentRegion)
-    } catch (error) {
-      askStatus.value = 'error'
-      askDetail.value = error instanceof Error ? error.message : t('unknownErr')
-      speakStatus(askDetail.value)
-      return
-    }
-    if (
-      selectedFile.value !== preCropFile ||
-      askTarget.value !== 'region' ||
-      regionIndex.value !== sentRegion
-    ) {
-      return
-    }
-    sourceLabel = t('srcRegion', { n: sentRegion + 1 })
-  }
-  if (imageToSend.size > MAX_BYTES) {
+  if (trimmedQuestion.length > questionMax.value) {
     askStatus.value = 'error'
-    askDetail.value = t('errTooBig')
-    speakStatus(askDetail.value)
+    askDetail.value = { key: 'errQuestionTooLong', params: { max: questionMax.value } }
+    speakStatus(msgText(askDetail.value))
     return
   }
-  const sentFile = selectedFile.value
-  const sentQuestion = trimmedQuestion
-  // Answers come back in the selected UI language.
-  const answerLang = ANSWER_LANG_NAME[locale.value]
-  const upstreamQuestion = answerLang
-    ? `${trimmedQuestion}\n\nPlease answer in ${answerLang}.`
-    : trimmedQuestion
-  askStatus.value = 'loading'
-  askDetail.value = ''
-  answer.value = ''
-  answerSource.value = ''
-  // Let the answer watcher settle first so it cannot cancel this speech.
-  await nextTick()
-  if (!disposed && askStatus.value === 'loading') {
-    speakStatus(t('askLoading'))
-  }
+  askInFlight = true
   try {
-    const form = new FormData()
-    form.append('image', imageToSend)
-    form.append('question', upstreamQuestion)
-    const response = await fetch(`${backendUrl}/api/ask`, {
-      method: 'POST',
-      body: form,
-    })
-    if (!response.ok) {
-      const body = await response.json().catch(() => null)
-      throw new Error(body?.detail ?? `HTTP ${response.status}`)
+    // Resolve which pixels to send. Region mode never silently falls back:
+    // without a valid box the request is refused with a clear message.
+    let imageToSend = selectedFile.value
+    const sentKind = askTarget.value
+    const sentRegion = regionIndex.value
+    if (askTarget.value === 'region') {
+      const box = boxes.value[regionIndex.value]
+      if (!box) {
+        askStatus.value = 'error'
+        askDetail.value = { key: 'regionGone' }
+        speakStatus(msgText(askDetail.value))
+        return
+      }
+      const preCropFile = selectedFile.value
+      cropping.value = true
+      try {
+        imageToSend = await cropRegion(box, sentRegion)
+      } catch (error) {
+        askStatus.value = 'error'
+        askDetail.value = asMsg(error)
+        speakStatus(msgText(askDetail.value))
+        return
+      } finally {
+        cropping.value = false
+      }
+      if (
+        selectedFile.value !== preCropFile ||
+        askTarget.value !== 'region' ||
+        regionIndex.value !== sentRegion
+      ) {
+        return
+      }
     }
-    const data = await response.json()
-    // Drop late responses if the user moved on to another image, question,
-    // or question target.
-    if (
-      selectedFile.value !== sentFile ||
-      question.value.trim() !== sentQuestion ||
-      askTarget.value !== sentKind ||
-      (sentKind === 'region' && regionIndex.value !== sentRegion)
-    ) {
-      askStatus.value = 'idle'
-      askDetail.value = ''
-      answer.value = ''
-      answerSource.value = ''
+    if (imageToSend.size > MAX_BYTES) {
+      askStatus.value = 'error'
+      askDetail.value = { key: 'errTooBig' }
+      speakStatus(msgText(askDetail.value))
       return
     }
-    answer.value = data?.answer ?? ''
-    answerSource.value = sourceLabel
-    askStatus.value = 'success'
-    // Wizard: move to the Listen step, then read the answer aloud.
-    // goStep skips its own announcement here so it cannot collide with
-    // the answer speech. nextTick lets the answer watcher settle first
-    // so it cannot cancel this speech.
-    goStep(4)
+    const sentFile = selectedFile.value
+    const sentQuestion = trimmedQuestion
+    // Answers come back in the selected UI language.
+    const upstreamQuestion = `${trimmedQuestion}${answerSuffix()}`
+    askStatus.value = 'loading'
+    askDetail.value = null
+    answer.value = ''
+    answerKind.value = ''
+    answerRegion.value = 0
+    // Let the answer watcher settle first so it cannot cancel this speech.
     await nextTick()
-    if (!disposed && voicePrefs.value.autoRead) {
-      readAnswerAloud()
+    if (!disposed && askStatus.value === 'loading') {
+      speakStatus(t('askLoading'))
     }
-  } catch (error) {
-    if (
-      selectedFile.value !== sentFile ||
-      question.value.trim() !== sentQuestion ||
-      askTarget.value !== sentKind ||
-      (sentKind === 'region' && regionIndex.value !== sentRegion)
-    ) {
-      askStatus.value = 'idle'
-      askDetail.value = ''
-      answer.value = ''
-      answerSource.value = ''
-      return
-    }
-    askStatus.value = 'error'
-    askDetail.value = error instanceof Error ? error.message : t('unknownErr')
-    speakStatus(askDetail.value)
-  }
-}
-
-async function refreshBackendStatus() {
-  if (disposed) {
-    return
-  }
-  try {
-    const response = await fetch(`${backendUrl}/health`)
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-    const data = await response.json()
-    if (!disposed) {
-      status.value = data?.status === 'ok' ? 'success' : 'error'
-    }
-  } catch {
-    if (!disposed) {
-      status.value = 'error'
-    }
-  }
-}
-
-onMounted(() => {
-  refreshBackendStatus()
-  statusTimer = setInterval(refreshBackendStatus, 30000)
-  refreshVoices()
-  if (speechSupported) {
     try {
-      window.speechSynthesis.onvoiceschanged = refreshVoices
-    } catch {
-      // Voice list stays as initially loaded.
+      const form = new FormData()
+      form.append('image', imageToSend)
+      form.append('question', upstreamQuestion)
+      let response
+      try {
+        response = await fetch(`${backendUrl}/api/ask`, {
+          method: 'POST',
+          body: form,
+        })
+      } catch {
+        throw networkError()
+      }
+      if (!response.ok) {
+        throw httpError(response.status)
+      }
+      const data = await response.json()
+      // Drop late responses if the user moved on to another image, question,
+      // or question target.
+      if (
+        selectedFile.value !== sentFile ||
+        question.value.trim() !== sentQuestion ||
+        askTarget.value !== sentKind ||
+        (sentKind === 'region' && regionIndex.value !== sentRegion)
+      ) {
+        askStatus.value = 'idle'
+        askDetail.value = null
+        answer.value = ''
+        answerKind.value = ''
+        answerRegion.value = 0
+        return
+      }
+      answer.value = data?.answer ?? ''
+      answerKind.value = sentKind
+      answerRegion.value = sentRegion
+      askStatus.value = 'success'
+      // Wizard: move to the Listen step, then read the answer aloud.
+      // goStep skips its own announcement here so it cannot collide with
+      // the answer speech. nextTick lets the answer watcher settle first
+      // so it cannot cancel this speech.
+      goStep(4)
+      await nextTick()
+      if (!disposed && voicePrefs.value.autoRead) {
+        readAnswerAloud(answer.value)
+      }
+    } catch (error) {
+      if (
+        selectedFile.value !== sentFile ||
+        question.value.trim() !== sentQuestion ||
+        askTarget.value !== sentKind ||
+        (sentKind === 'region' && regionIndex.value !== sentRegion)
+      ) {
+        askStatus.value = 'idle'
+        askDetail.value = null
+        answer.value = ''
+        answerKind.value = ''
+        answerRegion.value = 0
+        return
+      }
+      askStatus.value = 'error'
+      askDetail.value = asMsg(error)
+      speakStatus(msgText(askDetail.value))
     }
+  } finally {
+    askInFlight = false
   }
-})
+}
 </script>
 
 <template>
@@ -1177,7 +780,7 @@ onMounted(() => {
       </p>
     </div>
 
-    <nav class="wizard-progress" :aria-label="t('wizLabel')">
+    <div class="wizard-progress" role="group" :aria-label="t('wizLabel')">
       <ol>
         <li
           v-for="n in 4"
@@ -1189,8 +792,8 @@ onMounted(() => {
           <span class="wiz-name">{{ stepName(n) }}</span>
         </li>
       </ol>
-      <p class="wizard-count" role="status">{{ t('wizStepOf', { n: step }) }}</p>
-    </nav>
+      <p class="wizard-count">{{ t('wizStepOf', { n: step }) }}</p>
+    </div>
 
     <div class="wizard">
 
@@ -1243,7 +846,7 @@ onMounted(() => {
             {{ t('camOff') }}
           </p>
           <p v-if="camStatus === 'idle' && camFlash" class="ok">
-            ✓ {{ camFlash }}
+            ✓ {{ msgText(camFlash) }}
           </p>
           <p v-if="camStatus === 'starting'" class="muted">
             {{ t('camStarting') }}
@@ -1253,7 +856,7 @@ onMounted(() => {
           </p>
         </div>
         <p v-if="camStatus === 'error'" class="err" role="alert">
-          ✗ {{ camDetail }}
+          ✗ {{ msgText(camDetail) }}
         </p>
       </div>
       <div class="upload-alt">
@@ -1269,6 +872,7 @@ onMounted(() => {
           aria-describedby="image-hint"
           @change="onFileChange"
         />
+        <p v-if="fileError" class="err" role="alert">✗ {{ msgText(fileError) }}</p>
       </div>
       <div class="status-line" role="status">
         <p v-if="selectedFile" class="ok">✓ {{ selectedFile.name }}</p>
@@ -1289,42 +893,42 @@ onMounted(() => {
             @error="onImgError"
           />
           <svg
-            v-if="boxes.length > 0 && naturalSize.w > 0 && naturalSize.h > 0"
+            v-if="overlayBoxes.length > 0 && naturalSize.w > 0 && naturalSize.h > 0"
             class="overlay"
             :viewBox="`0 0 ${naturalSize.w} ${naturalSize.h}`"
             role="img"
             :aria-label="t('overlayLabel')"
           >
-            <g v-for="(box, index) in boxes" :key="index">
+            <g v-for="entry in overlayBoxes" :key="entry.index">
               <title>
-                {{ t('boxTitle', { n: index + 1, x1: box.x1, x2: box.x2, y1: box.y1, y2: box.y2 }) }}
+                {{ t('boxTitle', { n: entry.index + 1, x1: entry.box.x1, x2: entry.box.x2, y1: entry.box.y1, y2: entry.box.y2 }) }}
               </title>
               <rect
                 class="box-halo"
-                :x="box.x1"
-                :y="box.y1"
-                :width="box.x2 - box.x1"
-                :height="box.y2 - box.y1"
+                :x="entry.x1"
+                :y="entry.y1"
+                :width="entry.x2 - entry.x1"
+                :height="entry.y2 - entry.y1"
               />
               <rect
                 class="box-line"
-                :x="box.x1"
-                :y="box.y1"
-                :width="box.x2 - box.x1"
-                :height="box.y2 - box.y1"
+                :x="entry.x1"
+                :y="entry.y1"
+                :width="entry.x2 - entry.x1"
+                :height="entry.y2 - entry.y1"
               />
               <text
                 class="box-label"
-                :x="box.x1 + 6"
-                :y="labelY(box)"
+                :x="entry.x1 + 6"
+                :y="labelY(entry)"
                 :font-size="labelSize()"
               >
-                {{ index + 1 }}
+                {{ entry.index + 1 }}
               </text>
             </g>
           </svg>
         </div>
-        <figcaption v-if="imgError" class="err" role="alert">{{ imgError }}</figcaption>
+        <figcaption v-if="imgError" class="err" role="alert">{{ msgText(imgError) }}</figcaption>
       </figure>
       <p v-else class="muted">{{ t('wizNeedPhoto') }}</p>
       <label class="prompt-label" for="prompt-input">
@@ -1351,10 +955,10 @@ onMounted(() => {
       <div class="status-line" role="status">
         <p v-if="segStatus === 'idle'" class="muted">{{ t('segIdle') }}</p>
         <p v-if="segStatus === 'loading'" class="muted">{{ t('segLoading') }}</p>
-        <p v-if="segStatus === 'success'" class="ok">✓ {{ segDetail }}</p>
+        <p v-if="segStatus === 'success'" class="ok">✓ {{ msgText(segDetail) }}</p>
       </div>
       <p v-if="segStatus === 'error'" class="err" role="alert">
-        ✗ {{ segDetail }}
+        ✗ {{ msgText(segDetail) }}
       </p>
     </section>
 
@@ -1368,28 +972,28 @@ onMounted(() => {
         <legend>{{ t('presetTitle') }}</legend>
         <button
           class="btn btn-secondary preset-btn"
-          :disabled="askStatus === 'loading' || !selectedFile"
+          :disabled="askBusy || !selectedFile"
           @click="askPreset('presetRead')"
         >
           {{ t('presetRead') }}
         </button>
         <button
           class="btn btn-secondary preset-btn"
-          :disabled="askStatus === 'loading' || !selectedFile"
+          :disabled="askBusy || !selectedFile"
           @click="askPreset('presetAllergen')"
         >
           {{ t('presetAllergen') }}
         </button>
         <button
           class="btn btn-secondary preset-btn"
-          :disabled="askStatus === 'loading' || !selectedFile"
+          :disabled="askBusy || !selectedFile"
           @click="askPreset('presetExpiry')"
         >
           {{ t('presetExpiry') }}
         </button>
         <button
           class="btn btn-secondary preset-btn"
-          :disabled="askStatus === 'loading' || !selectedFile"
+          :disabled="askBusy || !selectedFile"
           @click="askPreset('presetWhat')"
         >
           {{ t('presetWhat') }}
@@ -1406,7 +1010,7 @@ onMounted(() => {
         v-model="question"
         type="text"
         :placeholder="t('qPlaceholder')"
-        maxlength="500"
+        :maxlength="questionMax"
         aria-describedby="question-hint"
       />
       <fieldset class="target-group">
@@ -1444,7 +1048,7 @@ onMounted(() => {
       </div>
       <button
         class="btn btn-primary btn-block"
-        :disabled="askStatus === 'loading' || !selectedFile || !question.trim()"
+        :disabled="askBusy || !selectedFile || !question.trim()"
         @click="runAsk"
       >
         {{ askStatus === 'loading' ? t('askingBtn') : t('askBtn') }}
@@ -1453,11 +1057,11 @@ onMounted(() => {
         <p v-if="askStatus === 'idle'" class="muted">{{ t('askIdle') }}</p>
         <p v-if="askStatus === 'loading'" class="muted">{{ t('askLoading') }}</p>
         <p v-if="askStatus === 'success'" class="ok">
-          ✓ {{ t('askSuccess', { source: answerSource }) }}
+          ✓ {{ t('askSuccess', { source: answerSourceText }) }}
         </p>
       </div>
       <p v-if="askStatus === 'error'" class="err" role="alert">
-        ✗ {{ askDetail }}
+        ✗ {{ msgText(askDetail) }}
       </p>
     </section>
 
@@ -1466,7 +1070,7 @@ onMounted(() => {
       <h2 id="step-4-heading" tabindex="-1">{{ t('wizListenHeading') }}</h2>
       <div class="status-line" role="status">
         <p v-if="askStatus === 'success'" class="ok">
-          ✓ {{ t('askSuccess', { source: answerSource }) }}
+          ✓ {{ t('askSuccess', { source: answerSourceText }) }}
         </p>
         <p v-else class="muted">{{ t('wizAnswerEmpty') }}</p>
       </div>
@@ -1481,7 +1085,7 @@ onMounted(() => {
         <button
           class="btn btn-primary"
           :disabled="!speechSupported || !answer || isSpeaking"
-          @click="readAnswerAloud"
+          @click="readAnswerAloud(answer)"
         >
           {{ isSpeaking ? t('readingBtn') : t('readBtn') }}
         </button>
@@ -1527,7 +1131,7 @@ onMounted(() => {
         v-else-if="askStatus === 'success' && answer"
         class="btn btn-secondary btn-bar"
         :disabled="!speechSupported"
-        @click="readAnswerAloud"
+        @click="readAnswerAloud(answer)"
       >
         {{ t('readBtn') }}
       </button>
@@ -1548,6 +1152,7 @@ onMounted(() => {
       @click="onSettingsBackdrop"
       @close="cancelSpeech"
     >
+    <div class="settings-body">
       <div class="settings-head">
         <h2 id="settings-heading">{{ t('settingsTitle') }}</h2>
         <button class="btn btn-secondary" @click="closeSettings">
@@ -1637,9 +1242,15 @@ onMounted(() => {
             {{ t('voiceAutoRead') }}
           </label>
           <label>
-            <input v-model="voicePrefs.announce" type="checkbox" />
+            <input
+              id="voice-announce"
+              v-model="voicePrefs.announce"
+              type="checkbox"
+              aria-describedby="voice-announce-hint"
+            />
             {{ t('voiceAnnounce') }}
           </label>
+          <p class="muted hint" id="voice-announce-hint">{{ t('voiceAnnounceHint') }}</p>
           <button
             class="btn btn-secondary"
             :aria-label="isSpeaking ? t('stopLabel') : undefined"
@@ -1650,6 +1261,7 @@ onMounted(() => {
         </div>
       </div>
       <p v-else class="muted settings-section">{{ t('speechUnsupported') }}</p>
+    </div>
     </dialog>
   </main>
 </template>
@@ -1897,7 +1509,7 @@ onMounted(() => {
 .wizard-progress .wiz-current .wiz-num {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .wizard-count {
@@ -1966,18 +1578,6 @@ onMounted(() => {
   border-radius: var(--radius-control);
   background: var(--surface-2);
   color: inherit;
-}
-
-.hint {
-  margin: 0.25rem 0 0;
-  font-size: 1rem;
-}
-
-.prompt-label {
-  display: block;
-  margin-top: 1rem;
-  font-weight: 600;
-  color: var(--text-h);
 }
 
 .card input[type='text'],
@@ -2052,12 +1652,13 @@ onMounted(() => {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+  color: var(--on-accent);
 }
 
 .btn-secondary {
@@ -2202,10 +1803,14 @@ onMounted(() => {
   box-shadow: var(--shadow);
   background: var(--surface);
   color: var(--text);
-  padding: 1.5rem;
+  padding: 0;
   width: min(40rem, calc(100vw - 2rem));
   max-height: calc(100vh - 4rem);
   overflow-y: auto;
+}
+
+.settings-body {
+  padding: 1.5rem;
 }
 
 .settings-dialog::backdrop {
@@ -2397,10 +2002,6 @@ code {
 
   .header-inner {
     padding: 0.75rem 1rem;
-  }
-
-  .btn-block {
-    width: 100%;
   }
 
   .preset-group {

@@ -1,6 +1,12 @@
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import httpx
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.meta_api import (
     ASK_MODEL_ID,
@@ -9,6 +15,7 @@ from app.meta_api import (
     MAX_PROMPT_CHARS,
     MAX_QUESTION_CHARS,
     MODEL_ID,
+    REQUEST_TIMEOUT_SECONDS,
     SUPPORTED_MEDIA_TYPES,
     MetaUpstreamError,
     ask_about_image,
@@ -17,18 +24,92 @@ from app.meta_api import (
 )
 from app.settings import Settings, get_settings
 
-app = FastAPI(title="VisionSpark API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Share one HTTP client across requests to reuse TLS connections."""
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+        app.state.http = client
+        yield
+
+
+app = FastAPI(title="VisionSpark API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=get_settings().cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Multipart framing overhead on top of the image itself.
+MAX_BODY_BYTES = MAX_IMAGE_BYTES + 64 * 1024
+_BODY_TOO_LARGE_DETAIL = "Image exceeds the 5 MiB size limit."
+
+
+class _BodyTooLargeError(Exception):
+    """Raised by the size-counting receive wrapper once the cap is exceeded."""
+
+
+def _request_content_length(scope: Scope) -> int | None:
+    for name, value in scope.get("headers", []):
+        if name.lower() == b"content-length":
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    return None
+
+
+class BodySizeLimitMiddleware:
+    """Reject oversized /api/* POST bodies before Starlette spools them to disk.
+
+    Pure ASGI: a Content-Length over the cap is rejected immediately,
+    otherwise the receive channel is wrapped to count streamed bytes and the
+    same 413 is returned once the cap is exceeded.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
+        response = JSONResponse({"detail": _BODY_TOO_LARGE_DETAIL}, status_code=413)
+        await response(scope, receive, send)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or not scope["path"].startswith("/api/")
+        ):
+            await self.app(scope, receive, send)
+            return
+        content_length = _request_content_length(scope)
+        if content_length is not None and content_length > MAX_BODY_BYTES:
+            await self._reject(scope, receive, send)
+            return
+        if content_length is not None:
+            await self.app(scope, receive, send)
+            return
+        seen = 0
+
+        async def limited_receive() -> Message:
+            nonlocal seen
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > MAX_BODY_BYTES:
+                    raise _BodyTooLargeError
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _BodyTooLargeError:
+            await self._reject(scope, receive, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware)
 
 
 class Box(BaseModel):
@@ -68,7 +149,22 @@ async def _read_validated_image(image: UploadFile) -> tuple[bytes, str]:
         )
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-    return content, image.content_type or "image/png"
+    # The declared content type is client-controlled; verify the magic bytes.
+    media_type = image.content_type or "image/png"
+    if media_type == "image/jpeg":
+        matches = content.startswith(b"\xff\xd8\xff")
+    elif media_type == "image/png":
+        matches = content.startswith(b"\x89PNG\r\n\x1a\n")
+    elif media_type == "image/webp":
+        matches = content[0:4] == b"RIFF" and content[8:12] == b"WEBP"
+    else:  # Unreachable: the media type was validated above.
+        matches = False
+    if not matches:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported media type. Use JPEG, PNG, or WebP.",
+        )
+    return content, media_type
 
 
 @app.get("/health")
@@ -76,8 +172,14 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _shared_client(request: Request) -> httpx.AsyncClient | None:
+    """Lifespan HTTP client, or None when the lifespan did not run (tests)."""
+    return getattr(request.app.state, "http", None)
+
+
 @app.post("/api/segment", response_model=SegmentResponse)
 async def segment(
+    request: Request,
     image: UploadFile = File(...),
     prompt: str = Form(default=DEFAULT_PROMPT),
     settings: Settings = Depends(get_settings),
@@ -96,7 +198,9 @@ async def segment(
         )
     content, media_type = await _read_validated_image(image)
     try:
-        output_text = await segment_image(api_key, content, media_type, prompt)
+        output_text = await segment_image(
+            api_key, content, media_type, prompt, client=_shared_client(request)
+        )
     except MetaUpstreamError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     return SegmentResponse(
@@ -109,6 +213,7 @@ async def segment(
 
 @app.post("/api/ask", response_model=AskResponse)
 async def ask(
+    request: Request,
     image: UploadFile = File(...),
     question: str = Form(...),
     settings: Settings = Depends(get_settings),
@@ -129,7 +234,9 @@ async def ask(
         )
     content, media_type = await _read_validated_image(image)
     try:
-        answer = await ask_about_image(api_key, content, media_type, question)
+        answer = await ask_about_image(
+            api_key, content, media_type, question, client=_shared_client(request)
+        )
     except MetaUpstreamError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     return AskResponse(model=ASK_MODEL_ID, status="ok", answer=answer)

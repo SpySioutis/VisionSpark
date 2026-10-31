@@ -1,5 +1,22 @@
-# Vue 3 + Vite
+# VisionSpark frontend
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3 + Vite audio-first web UI for VisionSpark, an accessible image
+assistant for blind and low-vision users (photo capture/upload, SAM 3.1
+region finding with an SVG overlay, visual Q&A with spoken answers).
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## Commands
+
+```bash
+npm install
+npm run dev -- --port 5173
+npm run build
+npm run check-locales
+```
+
+## Configuration
+
+- `VITE_BACKEND_URL` (default `http://localhost:8000`): where the FastAPI
+  backend runs. Never put secrets in `VITE_*` variables — Vite inlines
+  them into the client bundle.
+
+See [../MANUAL.md](../MANUAL.md) for setup, usage, and troubleshooting.

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check-locales": "node check-locales.mjs"
+    "check-locales": "node check-locales.mjs",
+    "verify": "npm run check-locales && npm run build"
   },
   "dependencies": {
     "vue": "^3.5.44"

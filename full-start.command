@@ -30,11 +30,15 @@ if [ ! -d "$ROOT/frontend/node_modules" ]; then
   (cd "$ROOT/frontend" && npm install) || exit 1
 fi
 
+# Escape ROOT for the AppleScript string layer; quoted form of handles the
+# shell layer so ROOT may contain spaces, quotes, or backslashes.
+ESCAPED_ROOT="$(printf '%s' "$ROOT" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+
 echo "-> Opening backend window (http://localhost:8000)..."
-osascript -e "tell application \"Terminal\" to do script \"cd '$ROOT/backend' && uv run uvicorn app.main:app --host localhost --port 8000 --reload\""
+osascript -e "tell application \"Terminal\" to do script (\"cd \" & quoted form of \"$ESCAPED_ROOT/backend\" & \" && uv run uvicorn app.main:app --host localhost --port 8000 --reload\")"
 
 echo "-> Opening frontend window (http://localhost:5173)..."
-osascript -e "tell application \"Terminal\" to do script \"cd '$ROOT/frontend' && npm run dev -- --port 5173\""
+osascript -e "tell application \"Terminal\" to do script (\"cd \" & quoted form of \"$ESCAPED_ROOT/frontend\" & \" && npm run dev -- --port 5173\")"
 
 echo "-> Opening the app in your browser..."
 sleep 5

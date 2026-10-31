@@ -95,7 +95,7 @@ curl -o /dev/null -w "%{http_code}\n" http://localhost:5173/  # 200
 ```
 
 - Quality gates: `cd backend && uv run pytest -q && uv run ruff check . &&
-  uv run ruff format --check .` and `cd frontend && npm run build`.
+  uv run ruff format --check .` and `cd frontend && npm run verify`.
 
 ## 7. Troubleshooting
 
@@ -105,13 +105,15 @@ curl -o /dev/null -w "%{http_code}\n" http://localhost:5173/  # 200
 | Upload rejected (415) | only JPEG/PNG/WebP accepted |
 | Upload rejected (413) | image exceeds 5 MiB; resize it |
 | Frontend can't reach backend | backend must run on `localhost:8000`, or set `VITE_BACKEND_URL` in `frontend/.env` to match |
-| Port already in use | stop the old process, or change the port (update `VITE_BACKEND_URL` + backend CORS origins accordingly) |
+| Port already in use | stop the old process, or change the port (update `VITE_BACKEND_URL` + `CORS_ORIGINS` accordingly) |
 | `uv: command not found` | install `uv` (Section 1) and reopen the terminal |
 | "Speech playback is not supported" | use Chrome/Edge/Firefox; no key or service can fix this, it is browser support |
-| "Camera is not supported" | use Chrome/Edge/Firefox/Safari; camera needs a secure context — `localhost`/`localhost` work, plain-`http` LAN addresses do not |
+| "Camera is not supported" | use Chrome/Edge/Firefox/Safari; camera needs a secure context — `localhost`/`127.0.0.1` work, plain-`http` LAN addresses do not |
 | "Camera permission was denied" | allow camera access in the browser site settings, then press **Use camera** again |
 | "Camera is already in use" | close the other app/tab using the camera and retry |
 | Upstream 502/504 from AI endpoints | Meta API error/timeout; wait and retry, check key/billing in the Meta dashboard |
+| Upstream 503 "misconfigured" from AI endpoints | Meta API rejected the key (401/403 upstream): check `MODEL_API_KEY` in `backend/.env` |
+| Upstream 503 "busy" from AI endpoints | Meta API rate limit (429 upstream): wait a moment and retry |
 
 ## 8. Stopping
 
@@ -128,6 +130,6 @@ curl -o /dev/null -w "%{http_code}\n" http://localhost:5173/  # 200
 - Uploads are limited to JPEG/PNG/WebP at 5 MiB; questions to 500
   characters; the backend waits at most 60 s per AI request.
 - Camera and speech need a supporting browser; the camera needs a secure
-  context (`localhost`/`localhost` or HTTPS).
+  context (`localhost`/`127.0.0.1` or HTTPS).
 - The app needs internet access to reach the Meta Model API; there is no
   offline mode.

@@ -1,44 +1,21 @@
-from collections.abc import Generator
 from typing import Any
 
 import pytest
+from conftest import PNG_BYTES
 from fastapi.testclient import TestClient
 
-from app.main import app, get_settings
 from app.meta_api import MAX_IMAGE_BYTES, MAX_QUESTION_CHARS, MetaUpstreamError
-from app.settings import Settings
-
-client = TestClient(app)
-
-PNG_BYTES = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
-    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
-)
 
 SAMPLE_ANSWER = "The image shows a brown dog sitting on the grass."
 
 
-@pytest.fixture()
-def configured_key() -> Generator[None]:
-    app.dependency_overrides[get_settings] = lambda: Settings(model_api_key="test-key")
-    yield
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture()
-def missing_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    monkeypatch.delenv("MODEL_API_KEY", raising=False)
-    app.dependency_overrides[get_settings] = lambda: Settings(model_api_key=None)
-    yield
-    app.dependency_overrides.clear()
-
-
-def test_ask_success(configured_key: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ask_success(
+    client: TestClient, configured_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seen: dict[str, Any] = {}
 
     async def fake_ask(
-        api_key: str, image_bytes: bytes, media_type: str, question: str
+        api_key: str, image_bytes: bytes, media_type: str, question: str, **kwargs: Any
     ) -> str:
         seen["api_key"] = api_key
         seen["image_bytes"] = image_bytes
@@ -65,7 +42,7 @@ def test_ask_success(configured_key: None, monkeypatch: pytest.MonkeyPatch) -> N
     assert "test-key" not in response.text
 
 
-def test_ask_missing_question_field(configured_key: None) -> None:
+def test_ask_missing_question_field(client: TestClient, configured_key: None) -> None:
     response = client.post(
         "/api/ask",
         files={"image": ("test.png", PNG_BYTES, "image/png")},
@@ -83,7 +60,7 @@ def test_ask_missing_question_field(configured_key: None) -> None:
     ],
 )
 def test_ask_empty_question(
-    configured_key: None, question: str, expected_status: int
+    client: TestClient, configured_key: None, question: str, expected_status: int
 ) -> None:
     response = client.post(
         "/api/ask",
@@ -95,7 +72,7 @@ def test_ask_empty_question(
         assert "must not be empty" in response.json()["detail"]
 
 
-def test_ask_question_too_long(configured_key: None) -> None:
+def test_ask_question_too_long(client: TestClient, configured_key: None) -> None:
     response = client.post(
         "/api/ask",
         files={"image": ("test.png", PNG_BYTES, "image/png")},
@@ -105,7 +82,7 @@ def test_ask_question_too_long(configured_key: None) -> None:
     assert "at most" in response.json()["detail"]
 
 
-def test_ask_unsupported_media_type(configured_key: None) -> None:
+def test_ask_unsupported_media_type(client: TestClient, configured_key: None) -> None:
     response = client.post(
         "/api/ask",
         files={"image": ("test.txt", b"hello", "text/plain")},
@@ -115,7 +92,7 @@ def test_ask_unsupported_media_type(configured_key: None) -> None:
     assert "JPEG" in response.json()["detail"]
 
 
-def test_ask_oversized_upload(configured_key: None) -> None:
+def test_ask_oversized_upload(client: TestClient, configured_key: None) -> None:
     response = client.post(
         "/api/ask",
         files={
@@ -130,7 +107,7 @@ def test_ask_oversized_upload(configured_key: None) -> None:
     assert response.status_code == 413
 
 
-def test_ask_missing_api_key(missing_key: None) -> None:
+def test_ask_missing_api_key(client: TestClient, missing_key: None) -> None:
     response = client.post(
         "/api/ask",
         files={"image": ("test.png", PNG_BYTES, "image/png")},
@@ -141,7 +118,7 @@ def test_ask_missing_api_key(missing_key: None) -> None:
 
 
 def test_ask_upstream_failure_sanitized(
-    configured_key: None, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, configured_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fake_ask(*args: Any, **kwargs: Any) -> str:
         raise MetaUpstreamError(502, "Question answering provider returned an error.")
@@ -160,7 +137,7 @@ def test_ask_upstream_failure_sanitized(
 
 
 def test_ask_upstream_timeout(
-    configured_key: None, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, configured_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fake_ask(*args: Any, **kwargs: Any) -> str:
         raise MetaUpstreamError(504, "Question answering request timed out.")
@@ -172,3 +149,13 @@ def test_ask_upstream_timeout(
         data={"question": "What is this?"},
     )
     assert response.status_code == 504
+
+
+def test_ask_empty_file(client: TestClient, configured_key: None) -> None:
+    response = client.post(
+        "/api/ask",
+        files={"image": ("empty.png", b"", "image/png")},
+        data={"question": "What is this?"},
+    )
+    assert response.status_code == 400
+    assert "empty" in response.json()["detail"]
