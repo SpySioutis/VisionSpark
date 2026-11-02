@@ -148,5 +148,28 @@ export function usePreferences() {
     },
   })
 
-  return { locale, theme, voicePrefs, currentVoice, clampRate, clampPitch, t }
+  // App mode: Quick (ask first, then point) or the step-by-step wizard.
+  // Persisted like the theme; Quick is the default.
+  const MODE_KEY = 'visionspark-mode'
+  function loadMode() {
+    try {
+      const stored = localStorage.getItem(MODE_KEY)
+      if (stored === 'quick' || stored === 'steps') {
+        return stored
+      }
+    } catch {
+      // Private mode or blocked storage: fall through to Quick.
+    }
+    return 'quick'
+  }
+  const mode = ref(loadMode())
+  watch(mode, (value) => {
+    try {
+      localStorage.setItem(MODE_KEY, value)
+    } catch {
+      // Storage unavailable: the choice still applies for this visit.
+    }
+  })
+
+  return { locale, theme, mode, voicePrefs, currentVoice, clampRate, clampPitch, t }
 }

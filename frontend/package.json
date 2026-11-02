@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check-locales": "node check-locales.mjs",
-    "verify": "npm run check-locales && npm run build"
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "verify": "npm run check-locales && npm test && npm run build"
   },
   "dependencies": {
     "vue": "^3.5.44"

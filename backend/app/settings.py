@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     model_api_key: str | None = None
     # Overridable via CORS_ORIGINS as a JSON list, e.g. '["http://localhost:5173"]'.
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # Built frontend directory to serve at "/". Unset by default; the Docker
+    # image and phone testing set FRONTEND_DIST to the Vite dist directory.
+    frontend_dist: Path | None = None
+    # Per-IP rate limit for POST /api/* per minute. 0 = off; suggest 30 for
+    # public hosting.
+    rate_limit_per_minute: int = 0
 
 
 @lru_cache

@@ -1,5 +1,7 @@
 from collections.abc import Generator
+from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -31,3 +33,23 @@ def missing_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     app.dependency_overrides[get_settings] = lambda: Settings(model_api_key=None)
     yield
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _block_real_http(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Fail loudly on any un-mocked upstream HTTP call from app code.
+
+    Tests that install their own MockTransport keep working: the transport
+    is only defaulted, never overridden.
+    """
+    real_client = httpx.AsyncClient
+
+    def fail_handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"Un-mocked upstream HTTP call in test: {request.url}")
+
+    def factory(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        kwargs.setdefault("transport", httpx.MockTransport(fail_handler))
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr("app.meta_api.httpx.AsyncClient", factory)
+    yield

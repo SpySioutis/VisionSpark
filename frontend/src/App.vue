@@ -1,21 +1,22 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, provide, ref, watch } from 'vue'
 import { ANSWER_LANG_NAME, LOCALES } from './i18n.js'
+import { backendUrl } from './lib/api.js'
+import { asMsg, httpError, networkError } from './lib/messages.js'
 import { usePreferences } from './composables/usePreferences.js'
 import { useBackendStatus } from './composables/useBackendStatus.js'
 import { useSpeech } from './composables/useSpeech.js'
 import { useCamera } from './composables/useCamera.js'
-import { paddedCropRect, scaleBox } from './lib/boxes.js'
-
-const backendUrl =
-  import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000'
+import { describeBox, scaleBox } from './lib/boxes.js'
+import { cropToFile } from './lib/crop.js'
+import QuickMode from './components/QuickMode.vue'
 
 // Set on unmount; async callbacks check it via isDisposed() before touching state.
 let disposed = false
 const isDisposed = () => disposed
 
 const prefs = usePreferences()
-const { locale, theme, voicePrefs, currentVoice, t } = prefs
+const { locale, theme, mode, voicePrefs, currentVoice, t } = prefs
 // Backend status is polled before voices load, as before.
 const { status } = useBackendStatus({ backendUrl, isDisposed })
 const {
@@ -35,10 +36,27 @@ const {
   camDetail,
   camFlash,
   videoEl,
+  torchSupported,
+  setTorch,
   startCamera,
   stopCamera,
   capturePhoto,
 } = useCamera({ t, speakStatus, isDisposed, onCapture: handleCameraCapture })
+
+// Torch toggle state. It resets whenever the camera is not live.
+const torchOn = ref(false)
+async function toggleTorch() {
+  const next = !torchOn.value
+  const ok = await setTorch(next)
+  if (!isDisposed() && ok) {
+    torchOn.value = next
+  }
+}
+watch(camStatus, (value) => {
+  if (value !== 'live') {
+    torchOn.value = false
+  }
+})
 
 // Camera captures feed the same image state as file uploads.
 function handleCameraCapture(file) {
@@ -48,6 +66,21 @@ function handleCameraCapture(file) {
     fileInputEl.value.value = ''
   }
 }
+
+// Shared context for Quick mode (provide/inject): no long prop lists.
+provide('visionspark', {
+  t,
+  locale,
+  voicePrefs,
+  speakStatus,
+  readAnswerAloud,
+  cancelSpeech,
+  stopSpeaking,
+  isSpeaking,
+  speechSupported,
+  backendStatus: status,
+  isDisposed,
+})
 
 const MAX_BYTES = 5 * 1024 * 1024
 const MAX_QUESTION_CHARS = 500
@@ -139,6 +172,16 @@ function stepHeading(n) {
   }
 }
 
+// Mode switch: Quick stops the wizard camera; speech resets either way.
+// Entering steps re-orients via goStep(); QuickMode orients itself on mount.
+watch(mode, (value) => {
+  cancelSpeech()
+  stopCamera()
+  if (value === 'steps') {
+    goStep(step.value)
+  }
+})
+
 function startOver() {
   cancelSpeech()
   stopCamera()
@@ -160,6 +203,12 @@ function askPreset(presetKey) {
   runAsk()
 }
 
+function askAnother() {
+  question.value = ''
+  clearAnswer()
+  goStep(3)
+}
+
 function primaryAction() {
   if (step.value === 1) {
     goStep(2)
@@ -168,7 +217,7 @@ function primaryAction() {
   } else if (step.value === 3) {
     runAsk()
   } else {
-    startOver()
+    askAnother()
   }
 }
 
@@ -190,7 +239,7 @@ const primaryLabel = computed(() => {
     return askStatus.value === 'loading' ? t('askingBtn') : t('askBtn')
   }
   if (step.value === 4) {
-    return t('wizStartOver')
+    return t('wizAskAnother')
   }
   return t('wizNext')
 })
@@ -264,6 +313,20 @@ const overlayBoxes = computed(() => {
   return out
 })
 
+// Region label in words ("Label 2: top left, large"): the segmentation
+// prompt capitalized, never pixel coordinates.
+function boxLabelParams(box, index) {
+  const raw = prompt.value.trim()
+  const { position, size } = describeBox(box)
+  const cap = (id) => id.charAt(0).toUpperCase() + id.slice(1)
+  return {
+    name: raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : t('regionOpt'),
+    n: index + 1,
+    position: t(`boxPos${cap(position)}`),
+    size: t(`boxSize${cap(size)}`),
+  }
+}
+
 function onImgLoad(event) {
   naturalSize.value = {
     w: event.target.naturalWidth,
@@ -280,51 +343,7 @@ function onImgError() {
 // Crop a SAM box (source-pixel coords in the token's w/h frame) out of the
 // original image at its intrinsic size, with 5% padding clamped to bounds.
 function cropRegion(box, index) {
-  return new Promise((resolve, reject) => {
-    // Failures reject with message descriptors so the caller can store and
-    // speak them in the current locale.
-    const fail = (message) => reject(message)
-    const img = previewImgEl.value
-    const nw = naturalSize.value.w
-    const nh = naturalSize.value.h
-    if (!img || !nw || !nh) {
-      fail({ key: 'cropLoading' })
-      return
-    }
-    const scaled = scaleBox(box, nw, nh)
-    if (!scaled || scaled.x2 <= scaled.x1 || scaled.y2 <= scaled.y1) {
-      fail({ key: 'cropInvalid' })
-      return
-    }
-    const rect = paddedCropRect(scaled, nw, nh)
-    if (!rect) {
-      fail({ key: 'cropEmpty' })
-      return
-    }
-    const { cx1, cy1, cx2, cy2 } = rect
-    const canvas = document.createElement('canvas')
-    canvas.width = cx2 - cx1
-    canvas.height = cy2 - cy1
-    const ctx = canvas.getContext('2d')
-    if (!ctx) {
-      fail({ key: 'cropFail' })
-      return
-    }
-    ctx.drawImage(img, cx1, cy1, cx2 - cx1, cy2 - cy1, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          fail({ key: 'cropFail' })
-          return
-        }
-        resolve(
-          new File([blob], `region-${index + 1}.jpg`, { type: 'image/jpeg' }),
-        )
-      },
-      'image/jpeg',
-      0.9,
-    )
-  })
+  return cropToFile(previewImgEl.value, box, naturalSize.value, index)
 }
 
 // Stale results belong to the previous prompt; clear them when it changes.
@@ -431,44 +450,6 @@ function msgText(msg) {
     return ''
   }
   return 'text' in msg ? msg.text : t(msg.key, msg.params)
-}
-
-// Normalize a caught failure into a stored message: our own throws are
-// already descriptors, genuine Errors keep their text, anything else is
-// an unknown error.
-function asMsg(error) {
-  if (error && typeof error === 'object' && 'key' in error) {
-    return error
-  }
-  return error instanceof Error ? { text: error.message } : { key: 'unknownErr' }
-}
-
-// Backend detail strings are English-only, so map HTTP failures to localized
-// messages instead of showing body.detail (which can also be a 422 array).
-function httpError(status) {
-  if (status === 413) {
-    return { key: 'errTooBig' }
-  }
-  if (status === 415) {
-    return { key: 'errFileType' }
-  }
-  if (status === 400 || status === 422) {
-    return { key: 'errRequest' }
-  }
-  if (status === 503) {
-    return { key: 'errNotConfigured' }
-  }
-  if (status === 502) {
-    return { key: 'errProvider' }
-  }
-  if (status === 504) {
-    return { key: 'errTimeout' }
-  }
-  return { key: 'errServer', params: { status } }
-}
-
-function networkError() {
-  return { key: 'errNetwork' }
 }
 
 async function runSegmentation() {
@@ -780,6 +761,20 @@ async function runAsk() {
       </p>
     </div>
 
+    <fieldset class="mode-switch">
+      <legend>{{ t('modeLegend') }}</legend>
+      <label>
+        <input v-model="mode" type="radio" value="quick" />
+        {{ t('modeQuick') }}
+      </label>
+      <label>
+        <input v-model="mode" type="radio" value="steps" />
+        {{ t('modeSteps') }}
+      </label>
+    </fieldset>
+
+    <QuickMode v-if="mode === 'quick'" />
+    <template v-else>
     <div class="wizard-progress" role="group" :aria-label="t('wizLabel')">
       <ol>
         <li
@@ -827,6 +822,15 @@ async function runAsk() {
             @click="stopCamera"
           >
             {{ t('btnStop') }}
+          </button>
+          <button
+            v-if="torchSupported"
+            class="btn btn-secondary"
+            :disabled="camStatus !== 'live'"
+            :aria-pressed="torchOn"
+            @click="toggleTorch"
+          >
+            {{ torchOn ? t('torchOff') : t('torchOn') }}
           </button>
         </div>
         <p v-if="!cameraSupported" class="muted">
@@ -901,7 +905,7 @@ async function runAsk() {
           >
             <g v-for="entry in overlayBoxes" :key="entry.index">
               <title>
-                {{ t('boxTitle', { n: entry.index + 1, x1: entry.box.x1, x2: entry.box.x2, y1: entry.box.y1, y2: entry.box.y2 }) }}
+                {{ t('boxTitle', boxLabelParams(entry.box, entry.index)) }}
               </title>
               <rect
                 class="box-halo"
@@ -1042,7 +1046,7 @@ async function runAsk() {
             :key="index"
             :value="index"
           >
-            {{ t('regionOption', { n: index + 1, x1: box.x1, x2: box.x2, y1: box.y1, y2: box.y2 }) }}
+            {{ t('regionOption', boxLabelParams(box, index)) }}
           </option>
         </select>
       </div>
@@ -1102,6 +1106,9 @@ async function runAsk() {
         </p>
         <p v-if="isSpeaking" class="muted">{{ t('speaking') }}</p>
       </div>
+      <button class="btn btn-secondary btn-block" @click="startOver">
+        {{ t('wizStartOver') }}
+      </button>
     </section>
 
     <div class="wizard-bar">
@@ -1138,6 +1145,7 @@ async function runAsk() {
       <p class="sr-only" role="status">{{ speechNote }}</p>
     </div>
     </div>
+    </template>
 
     <footer class="footer">
       <p>
@@ -1625,6 +1633,38 @@ async function runAsk() {
 }
 
 .target-group input[type='radio'] {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+
+.mode-switch {
+  margin: 1.25rem 0 0;
+  padding: 0.75rem 1rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  max-width: 46rem;
+}
+
+.mode-switch legend {
+  font-weight: 700;
+  color: var(--text-h);
+  padding: 0 0.5rem;
+}
+
+.mode-switch label {
+  display: inline-block;
+  margin: 0.25rem 1rem 0.25rem 0;
+  font-size: 1.0625rem;
+  min-height: 48px;
+  line-height: 48px;
+}
+
+.mode-switch input[type='radio'] {
   width: 1.25rem;
   height: 1.25rem;
   margin-right: 0.5rem;

@@ -1,6 +1,6 @@
 import asyncio
 import json
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from typing import Any
 
 import pytest
@@ -88,6 +88,35 @@ def test_body_cap_content_length() -> None:
     )
     assert response.status_code == 413
     assert response.json() == {"detail": "Image exceeds the 5 MiB size limit."}
+
+
+def test_body_cap_content_length_has_cors_header(client: TestClient) -> None:
+    response = client.post(
+        "/api/segment",
+        content=b"0" * (MAX_BODY_BYTES + 1),
+        headers={
+            "Content-Type": "multipart/form-data; boundary=x",
+            "Origin": "http://localhost:5173",
+        },
+    )
+    assert response.status_code == 413
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_body_cap_chunked_real_app(client: TestClient) -> None:
+    def body() -> Iterator[bytes]:  # a generator body has no Content-Length
+        yield b"0" * (MAX_BODY_BYTES + 1)
+
+    response = client.post(
+        "/api/segment",
+        content=body(),
+        headers={
+            "Content-Type": "multipart/form-data; boundary=x",
+            "Origin": "http://localhost:5173",
+        },
+    )
+    assert response.status_code == 413
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
 def _run_middleware(body: bytes) -> tuple[int, bytes, bool]:

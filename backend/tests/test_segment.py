@@ -23,15 +23,15 @@ SAMPLE_OUTPUT = (
 
 def test_parse_boxes_single() -> None:
     assert parse_boxes(SAMPLE_OUTPUT) == [
-        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480},
-        {"x1": 300, "y1": 310, "x2": 400, "y2": 410, "w": 640, "h": 480},
+        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480, "c": None},
+        {"x1": 300, "y1": 310, "x2": 400, "y2": 410, "w": 640, "h": 480, "c": None},
     ]
 
 
 def test_parse_boxes_confirmed_sam_token() -> None:
     text = "<|box;x1=92;y1=248;x2=439;y2=652;w=512;h=683|><|mask;...|>"
     assert parse_boxes(text) == [
-        {"x1": 92, "y1": 248, "x2": 439, "y2": 652, "w": 512, "h": 683}
+        {"x1": 92, "y1": 248, "x2": 439, "y2": 652, "w": 512, "h": 683, "c": None}
     ]
 
 
@@ -63,13 +63,42 @@ def test_parse_boxes_keeps_only_valid() -> None:
         "<|box;x1=50;y1=50;x2=40;y2=60;w=640;h=480|>"
     )
     assert parse_boxes(text) == [
-        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480},
-        {"x1": 300, "y1": 310, "x2": 400, "y2": 410, "w": 640, "h": 480},
+        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480, "c": None},
+        {"x1": 300, "y1": 310, "x2": 400, "y2": 410, "w": 640, "h": 480, "c": None},
     ]
 
 
 def test_parse_boxes_empty() -> None:
     assert parse_boxes("") == []
+
+
+def test_parse_boxes_with_confidence() -> None:
+    text = (
+        "<0f>1<|box;x1=444;y1=625;x2=679;y2=850;w=1800;h=1200;c=0.9609375|>"
+        "<|mask;x=0;y=0;c=0.9609375;data=226,236,!...|>"
+    )
+    assert parse_boxes(text) == [
+        {
+            "x1": 444,
+            "y1": 625,
+            "x2": 679,
+            "y2": 850,
+            "w": 1800,
+            "h": 1200,
+            "c": 0.9609375,
+        }
+    ]
+
+
+def test_parse_boxes_mixed_confidence() -> None:
+    text = (
+        "<|box;x1=10;y1=20;x2=100;y2=200;w=640;h=480;c=0.5|>"
+        "<|box;x1=300;y1=310;x2=400;y2=410;w=640;h=480|>"
+    )
+    assert parse_boxes(text) == [
+        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480, "c": 0.5},
+        {"x1": 300, "y1": 310, "x2": 400, "y2": 410, "w": 640, "h": 480, "c": None},
+    ]
 
 
 def test_extract_output_text_valid() -> None:
@@ -126,8 +155,8 @@ def test_segment_success(
     assert body["status"] == "ok"
     assert body["output_text"] == SAMPLE_OUTPUT
     assert body["boxes"] == [
-        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480},
-        {"x1": 300, "y1": 310, "x2": 400, "y2": 410, "w": 640, "h": 480},
+        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480, "c": None},
+        {"x1": 300, "y1": 310, "x2": 400, "y2": 410, "w": 640, "h": 480, "c": None},
     ]
     assert "test-key" not in response.text
 
@@ -255,3 +284,20 @@ def test_segment_empty_file(client: TestClient, configured_key: None) -> None:
     )
     assert response.status_code == 400
     assert "empty" in response.json()["detail"]
+
+
+def test_segment_returns_confidence(
+    client: TestClient, configured_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_segment(*args: Any, **kwargs: Any) -> str:
+        return "<|box;x1=10;y1=20;x2=100;y2=200;w=640;h=480;c=0.96|>"
+
+    monkeypatch.setattr("app.main.segment_image", fake_segment)
+    response = client.post(
+        "/api/segment",
+        files={"image": ("test.png", PNG_BYTES, "image/png")},
+    )
+    assert response.status_code == 200
+    assert response.json()["boxes"] == [
+        {"x1": 10, "y1": 20, "x2": 100, "y2": 200, "w": 640, "h": 480, "c": 0.96}
+    ]
