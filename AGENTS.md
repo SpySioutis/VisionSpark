@@ -15,9 +15,12 @@ Instructions for AI coding agents working in this repository. Humans: see
   rate, auto-read toggles).
 - Meta Model API: `https://api.meta.ai/v1/responses`, models `sam-3.1` and
   `muse-spark-1.3`, Bearer auth with `MODEL_API_KEY`.
-- Ports: backend `localhost:8000`, frontend `localhost:5173`.
+- Ports: backend `localhost:8000`, frontend `https://localhost:5173`
+  (self-signed HTTPS on the LAN by default, so the phone camera/mic
+  work; `--http` / `VITE_HTTPS=0` opts out to plain HTTP).
   Frontend talks to the backend via `VITE_BACKEND_URL`
-  (default `http://localhost:8000`).
+  (default: same origin, except plain-HTTP localhost which uses
+  `http://localhost:8000` directly).
 
 ## 2. Backend rules (`backend/` is the working directory)
 

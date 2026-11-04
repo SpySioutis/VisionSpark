@@ -15,8 +15,11 @@ npm run check-locales
 
 ## Configuration
 
-- `VITE_BACKEND_URL` (default `http://localhost:8000`): where the FastAPI
-  backend runs. Never put secrets in `VITE_*` variables — Vite inlines
-  them into the client bundle.
+- `VITE_BACKEND_URL` (default: same origin, except plain-HTTP localhost
+  which uses `http://localhost:8000`): where the FastAPI backend runs. Never put
+  secrets in `VITE_*` variables — Vite inlines them into the client
+  bundle.
+- `VITE_HTTPS=0`: opt out of the default self-signed HTTPS and serve
+  plain HTTP instead (upload-only, no phone camera/mic).
 
 See [../MANUAL.md](../MANUAL.md) for setup, usage, and troubleshooting.

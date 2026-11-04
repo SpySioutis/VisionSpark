@@ -130,8 +130,9 @@ cp backend/.env.example backend/.env
 # Windows: double-click full-start.bat | macOS: double-click full-start.command
 ```
 
-Then open **http://localhost:5173/** (backend API at
-**http://localhost:8000**, docs at `/docs`).
+Then open **https://localhost:5173/** (accept the self-signed
+certificate warning once; backend API at **http://localhost:8000**,
+docs at `/docs`).
 
 Full instructions, manual start commands, and troubleshooting: see
 **[MANUAL.md](MANUAL.md)**. AI coding agents: see
@@ -139,9 +140,11 @@ Full instructions, manual start commands, and troubleshooting: see
 
 ## 📱 Use it on a phone
 
-The camera and microphone need HTTPS. Serve the built frontend from the
-backend and open it through an HTTPS tunnel (testing and recordings), or
-run the container on a host: see [MANUAL.md](MANUAL.md) (phone access).
+Start the app and open the printed `https://<your-lan-ip>:5173/` link
+on the phone (same Wi-Fi) — accept the self-signed certificate warning
+once and the camera and microphone work. For recordings or use outside
+your LAN, serve the built frontend and open it through an HTTPS tunnel,
+or run the container on a host: see [MANUAL.md](MANUAL.md) (phone access).
 
 ## 🗂️ Project Structure
 

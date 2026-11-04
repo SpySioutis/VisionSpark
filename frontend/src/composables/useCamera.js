@@ -27,6 +27,12 @@ export function useCamera({ t, speakStatus, isDisposed, onCapture, captureAnnoun
   const cameraSupported =
     typeof navigator !== 'undefined' &&
     !!navigator.mediaDevices?.getUserMedia
+  // Browsers hide mediaDevices on plain-HTTP LAN addresses. When the camera
+  // is missing for that reason, the UI points at the HTTPS mode instead.
+  const cameraNeedsHttps =
+    !cameraSupported &&
+    typeof window !== 'undefined' &&
+    window.isSecureContext === false
   const camStatus = ref('idle') // 'idle' | 'starting' | 'live' | 'error'
   // Translatable message descriptors ({ key, params }) or null, so the UI
   // re-renders them when the locale changes. Rendered via msgText().
@@ -230,6 +236,7 @@ export function useCamera({ t, speakStatus, isDisposed, onCapture, captureAnnoun
 
   return {
     cameraSupported,
+    cameraNeedsHttps,
     camStatus,
     camDetail,
     camFlash,

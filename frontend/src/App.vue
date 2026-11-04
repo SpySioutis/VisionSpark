@@ -32,6 +32,7 @@ const {
 } = useSpeech({ prefs, isDisposed })
 const {
   cameraSupported,
+  cameraNeedsHttps,
   camStatus,
   camDetail,
   camFlash,
@@ -835,6 +836,9 @@ async function runAsk() {
         </div>
         <p v-if="!cameraSupported" class="muted">
           {{ t('camUnsupported') }}
+        </p>
+        <p v-if="cameraNeedsHttps" class="muted">
+          {{ t('camNeedsHttps') }}
         </p>
         <video
           v-if="camStatus === 'starting' || camStatus === 'live'"

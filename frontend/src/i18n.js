@@ -59,6 +59,8 @@ export const STRINGS = {
     torchOn: 'Turn torch on',
     torchOff: 'Turn torch off',
     camUnsupported: 'Camera is not supported in this browser.',
+    camNeedsHttps:
+      'Tip: the camera needs an HTTPS address. Serve the app with HTTPS enabled and open the https:// link on your phone.',
     camOff: 'Camera is off.',
     camCaptured: 'Photo captured — it is now the selected image.',
     camStarting: 'Starting camera…',
@@ -284,6 +286,8 @@ export const STRINGS = {
     torchOn: 'Allumer la lampe',
     torchOff: 'Éteindre la lampe',
     camUnsupported: 'La caméra n’est pas prise en charge dans ce navigateur.',
+    camNeedsHttps:
+      'Astuce : la caméra exige une adresse HTTPS. Lance l’app avec HTTPS activé et ouvre le lien https:// sur ton téléphone.',
     camOff: 'Caméra éteinte.',
     camCaptured: 'Photo capturée – c’est maintenant l’image choisie.',
     camStarting: 'Démarrage de la caméra…',
@@ -513,6 +517,8 @@ export const STRINGS = {
     torchOn: 'Encender la linterna',
     torchOff: 'Apagar la linterna',
     camUnsupported: 'La cámara no es compatible con este navegador.',
+    camNeedsHttps:
+      'Consejo: la cámara necesita una dirección HTTPS. Inicia la app con HTTPS activado y abre el enlace https:// en tu teléfono.',
     camOff: 'Cámara apagada.',
     camCaptured: 'Foto capturada – ahora es la imagen elegida.',
     camStarting: 'Iniciando cámara…',
@@ -742,6 +748,8 @@ export const STRINGS = {
     torchOn: 'Άναψε τον φακό',
     torchOff: 'Σβήσε τον φακό',
     camUnsupported: 'Η κάμερα δεν υποστηρίζεται σε αυτό το πρόγραμμα περιήγησης.',
+    camNeedsHttps:
+      'Συμβουλή: η κάμερα χρειάζεται διεύθυνση HTTPS. Ξεκίνησε την εφαρμογή με ενεργό HTTPS και άνοιξε τον σύνδεσμο https:// στο τηλέφωνο.',
     camOff: 'Η κάμερα είναι κλειστή.',
     camCaptured: 'Η φωτογραφία τραβήχτηκε – είναι τώρα η επιλεγμένη εικόνα.',
     camStarting: 'Εκκίνηση κάμερας…',
@@ -966,6 +974,7 @@ export const STRINGS = {
     torchOn: '打开手电筒',
     torchOff: '关闭手电筒',
     camUnsupported: '此浏览器不支持摄像头。',
+    camNeedsHttps: '提示：摄像头需要 HTTPS 地址。请在启用 HTTPS 的情况下启动应用，并在手机上打开 https:// 链接。',
     camOff: '摄像头已关闭。',
     camCaptured: '已拍下照片——它现在是所选图像。',
     camStarting: '正在启动摄像头…',

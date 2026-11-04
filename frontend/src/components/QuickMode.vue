@@ -56,6 +56,7 @@ const fileInputEl = ref(null)
 
 const {
   cameraSupported,
+  cameraNeedsHttps,
   camStatus,
   camDetail,
   camFlash,
@@ -722,6 +723,7 @@ const regionSourceText = computed(() => {
       <h2 id="qm-point-heading" tabindex="-1">{{ t('qmPointHeading') }}</h2>
       <p class="qm-muted">{{ t('qmPointHint') }} {{ t('qmAutoHint') }}</p>
       <p v-if="!cameraSupported" class="qm-muted">{{ t('camUnsupported') }}</p>
+      <p v-if="cameraNeedsHttps" class="qm-muted">{{ t('camNeedsHttps') }}</p>
       <video
         v-if="camStatus === 'starting' || camStatus === 'live'"
         ref="videoEl"
