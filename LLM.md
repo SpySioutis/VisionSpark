@@ -35,12 +35,14 @@ backend/  FastAPI + Python 3.12 (pinned via .python-version), managed with `uv` 
   app/settings.py  MODEL_API_KEY, CORS_ORIGINS, FRONTEND_DIST, RATE_LIMIT_PER_MINUTE
   tests/           pytest, upstream ALWAYS mocked (monkeypatch segment_image/ask_about_image/run_assist)
 frontend/ Vue 3 + Vite + npm ONLY (no TS, no router, no store)
+  public/logos/      favicon (visionspark.webp + 32px PNG + 180px apple-touch)
   src/App.vue              shell + step wizard
   src/components/QuickMode.vue  quick flow; ZoomView.vue  crop zoom + contrast/invert
   src/composables/ useCamera, useFraming, useLiveGuidance, useVoiceQuestion, useSpeech, usePreferences, useBackendStatus, useEarcons
   src/lib/         api.js, boxes.js, crop.js, framing.js, messages.js, wav.js (pure, tested)
   src/i18n.js      STRINGS table 5 locales + translate(); check-locales.mjs enforces key/parity
   tests/*.test.mjs node:test for pure lib modules
+Logos/           16:9 app banners (dark/light/hero) + YouTube thumbnail, WebP 2048x1152
 Dockerfile         2-stage: node build → python slim, FRONTEND_DIST served at /, MODEL_API_KEY from host env only
 full-start.sh/.bat/.command  one-shot dev start (uv sync + npm install + both servers)
 ```
@@ -94,6 +96,7 @@ Middleware order: `BodySizeLimit` → `RateLimit` → `CORSMiddleware` (outermos
 - Composables: `useCamera` (stream only on user gesture, torch, full-res capture with quality ladder under 5MiB, stops tracks on capture/stop/switch/unmount), `useFraming` (L1: sample 160×120/200ms, speak cues, auto-capture after 4 steady samples), `useLiveGuidance` (L3, OFF unless `VITE_LIVE_GUIDANCE=true`: 1 frame/1.5s to `/api/segment`, ~$0.0025/frame), `useVoiceQuestion` (getUserMedia→MediaRecorder→decode→16k WAV; stops mic tracks immediately for iOS earpiece bug), `useSpeech` (Web Speech API, chunked utterances ~15s Chrome bug, voice resolution incl. woman/man name-heuristic best-effort, per-lang prefs), `usePreferences` (locale/theme/mode/voice in localStorage, `t()` helper, `<html lang>` + `data-theme`), `useBackendStatus` (auto poll, no manual button), `useEarcons` (lazy AudioContext, tick while working).
 - `src/i18n.js`: `LOCALES`, `VOICE_LANG` (BCP47), `ANSWER_LANG_NAME`, `translate(code,key,params)` with en fallback; `STRINGS` 5 locales, placeholders `{...}` must match exactly; `npm run check-locales` enforces.
 - `ZoomView.vue`: props crop File/URL + box; zoom 100-400%, contrast/invert filters, labeled.
+- Favicon: `index.html` links `/logos/visionspark.webp` (+ 32px PNG fallback, 180px apple-touch) from `public/logos/`.
 - A11y (preserve): native labeled inputs, keyboard support, focus management, `role=status`/`aria-live` regions, SVG overlay `viewBox` = image NATURAL size (1:1 coord mapping at any scale) + `role="img"`/`aria-label`/`<title>` per box.
 
 ## 8. Config & secrets

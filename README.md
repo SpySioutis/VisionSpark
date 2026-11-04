@@ -1,5 +1,7 @@
 # VisionSpark 👁️⚡
 
+![VisionSpark logo: white eye with a yellow spark on teal, with the tagline "Point, ask, and hear the answer."](Logos/visionspark-banner-dark.webp)
+
 > **One specific fact off any physical object, on demand.**
 
 VisionSpark gets one specific fact off a physical object for a blind
@@ -159,16 +161,19 @@ or run the container on a host: see [MANUAL.md](MANUAL.md) (phone access).
 │   ├── tests/        # pytest suite (upstream always mocked)
 │   └── pyproject.toml / uv.lock / .python-version
 ├── frontend/         # Vue 3 + Vite + npm
+│   ├── public/logos/ # favicon + app icons (WebP + PNG fallbacks)
 │   ├── src/
 │   │   ├── App.vue           # shell + step-by-step wizard
 │   │   ├── components/       # QuickMode.vue, ZoomView.vue
 │   │   ├── composables/      # camera, speech, prefs, voice, framing, earcons
 │   │   └── lib/              # api, boxes, crop, framing, messages, wav
 │   └── tests/        # node:test unit tests (pure modules)
+├── Logos/            # 16:9 app banners + YouTube thumbnail (WebP)
 ├── Dockerfile / .dockerignore  # one-container deployment
 ├── LICENSE / THIRD_PARTY_NOTICES.md
 ├── MANUAL.md         # how to run the program
-└── AGENTS.md         # AI agent working agreement
+├── AGENTS.md         # AI agent working agreement
+└── LLM.md            # one-file LLM onboarding
 ```
 
 ## 🔌 API Endpoints

@@ -11,6 +11,8 @@ npm install
 npm run dev -- --port 5173
 npm run build
 npm run check-locales
+npm test
+npm run verify   # check-locales + tests + build
 ```
 
 ## Configuration
